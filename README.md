@@ -124,7 +124,7 @@ notepad "$env:TEMP\DiscordVoicePatcher\patcher.log"
 
 ### Restore Original
 ```powershell
-irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1 | iex
+irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1 -OutFile "$env:TEMP\dvp.ps1"; & "$env:TEMP\dvp.ps1"
 # Then select "Restore" in the GUI
 ```
 
