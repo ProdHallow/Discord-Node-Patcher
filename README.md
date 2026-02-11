@@ -21,7 +21,7 @@ Just download and double-click. Always runs the latest version.
 ### Option 2: One-Liner (No Download)
 
 ```powershell
-irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord%20voice%20node%20patcher.ps1 | iex
+irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1 | iex
 ```
 
 Paste into PowerShell and press Enter.
@@ -124,7 +124,7 @@ notepad "$env:TEMP\DiscordVoicePatcher\patcher.log"
 
 ### Restore Original
 ```powershell
-irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord%20voice%20node%20patcher.ps1 | iex
+irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1 | iex
 # Then select "Restore" in the GUI
 ```
 
