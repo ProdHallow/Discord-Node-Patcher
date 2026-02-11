@@ -14,7 +14,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue
 
-$Script:UPDATE_URL = "https://raw.githubusercontent.com/ProdHallow/Discord-Voice-Node-Patcher-For-Stereo/main/discord_voice_node_patcher.ps1"
+$Script:UPDATE_URL = "https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord%20voice%20node%20patcher.ps1"
 $Script:SCRIPT_VERSION = "4.0"
 
 # ============================================================
@@ -53,7 +53,7 @@ $Script:Config = @{
     TempDir = "$env:TEMP\DiscordVoicePatcher"; BackupDir = "$env:TEMP\DiscordVoicePatcher\Backups"
     LogFile = "$env:TEMP\DiscordVoicePatcher\patcher.log"; ConfigFile = "$env:TEMP\DiscordVoicePatcher\config.json"
     MaxBackupCount = 10
-    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Voice-Node-Patcher-For-Stereo/contents/discord_voice"
+    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Node-Patcher-Feb-9-2026/contents/discord_voice"
     Offsets = @{
         CreateAudioFrameStereo = 0x118C41; AudioEncoderOpusConfigSetChannels = 0x3A7374
         MonoDownmixer = 0xD7E49; EmulateStereoSuccess1 = 0x53840B; EmulateStereoSuccess2 = 0x538417
