@@ -60,8 +60,7 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 | **512kbps Bitrate** | Upgraded from 382kbps to 512kbps — matches the maximum Opus bitrate used by the reference encoder |
 | **Duplicate Bitrate Path Patched** | Discovered and patched a parallel bitrate calculation function (`0x53D750`) that the original patcher missed — eliminates a leak path where the old 32kbps value could persist |
 | **Encoder Config Hot-Start** | Two Opus encoder config constructors (`0x3A737E`, `0x3A6C87`) now initialize at 512kbps instead of 32kbps — closes the window between encoder creation and the first `SetBitrate` call |
-| **18 Total Offsets** | Up from 15 — offset finder and patcher both updated for full coverage |
-| **Offset Finder Upgraded** | New `EncoderConfigInit2` signature + derivation rules for all 3 new offsets, verified 18/18 on Feb 2026 build |
+| **18 Total Offsets** | Up from 15 — patcher updated for full coverage |
 
 ---
 
