@@ -1,8 +1,8 @@
 # 🎙️ Discord Voice Node Patcher
 
-**Studio-grade audio for Discord: 48kHz • 382kbps • True Stereo**
+**Studio-grade audio for Discord: 48kHz • 512kbps • True Stereo**
 
-![Version](https://img.shields.io/badge/Version-4.0-5865F2?style=flat-square)
+![Version](https://img.shields.io/badge/Version-5.0-5865F2?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?style=flat-square)
 
@@ -45,7 +45,7 @@ Paste into PowerShell and press Enter.
 | Before | After |
 |:------:|:-----:|
 | 24 kHz | **48 kHz** |
-| ~64 kbps | **382 kbps** |
+| ~64 kbps | **512 kbps** |
 | Mono | **True Stereo** |
 | Fixed gain | **1x-10x Adjustable** |
 
@@ -53,15 +53,15 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 
 ---
 
-## 🆕 What's New in v4.0
+## 🆕 What's New in v5.0
 
 | Feature | Description |
 |---------|-------------|
-| **February 2026 Build Support** | All 15 offsets updated for the Feb 9, 2026 discord_voice.node |
-| **Binary Validation** | Pre-patch byte probes across 3 code sections detect wrong builds and already-patched files before writing |
-| **Bounds-Checked Patching** | Every patch write validates offset + length against file size — no more silent corruption on mismatched builds |
-| **Dynamic HighPassFilter** | Stub address computed from `IMAGE_BASE + HighpassCutoffFilter` at compile time instead of hardcoded bytes |
-| **Anti-Downgrade Protection** | Auto-updater compares version numbers and refuses to replace a newer script with an older one |
+| **512kbps Bitrate** | Upgraded from 382kbps to 512kbps — matches the maximum Opus bitrate used by the reference encoder |
+| **Duplicate Bitrate Path Patched** | Discovered and patched a parallel bitrate calculation function (`0x53D750`) that the original patcher missed — eliminates a leak path where the old 32kbps value could persist |
+| **Encoder Config Hot-Start** | Two Opus encoder config constructors (`0x3A737E`, `0x3A6C87`) now initialize at 512kbps instead of 32kbps — closes the window between encoder creation and the first `SetBitrate` call |
+| **18 Total Offsets** | Up from 15 — offset finder and patcher both updated for full coverage |
+| **Offset Finder Upgraded** | New `EncoderConfigInit2` signature + derivation rules for all 3 new offsets, verified 18/18 on Feb 2026 build |
 
 ---
 
@@ -133,7 +133,16 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 <details>
 <summary><h2>📋 Changelog</h2></summary>
 
-### v4.0 (Current) — February 2026 Build
+### v5.0 (Current) — 512kbps + Full Bitrate Coverage
+- 🚀 **NEW:** Bitrate upgraded from 382kbps to 512kbps across all patch sites
+- 🚀 **NEW:** `DuplicateEmulateBitrateModified` (`0x53D750`) — patches the parallel bitrate calculation function that bypassed the original `SetBitrate` path, preventing 32kbps leakthrough
+- 🚀 **NEW:** `EncoderConfigInit1` (`0x3A737E`) and `EncoderConfigInit2` (`0x3A6C87`) — patches both Opus encoder config constructors to initialize at 512kbps instead of 32kbps default
+- 🚀 **NEW:** Offset finder updated to 18/18 — new `EncoderConfigInit2` independent signature + derivation rules for `EncoderConfigInit1` and `DuplicateEmulateBitrateModified`
+- 🔀 **CHANGED:** Patcher step count 4→5; new step [5/5] applies encoder config init patches
+- 🔀 **CHANGED:** All bitrate bytes updated: `\xF0\xD4\x05` (382kbps) → `\x00\xD0\x07` (512kbps)
+- 🧹 **CLEANUP:** Section comment blocks converted to `# region` / `# endregion` style
+
+### v4.0 — February 2026 Build
 - 🚀 **NEW:** All 15 offsets updated for Feb 9, 2026 discord_voice.node build
 - 🚀 **NEW:** Pre-patch binary validation — checks original bytes at 3 sites across different PE sections before writing anything
 - 🚀 **NEW:** Already-patched detection — recognizes patched signatures and re-applies safely (e.g. for gain changes)
@@ -190,7 +199,7 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 <details>
 <summary><h2>🔬 Technical Details</h2></summary>
 
-### How It Works (v4.0)
+### How It Works (v5.0)
 
 1. Downloads compatible voice module files from GitHub backup repository
 2. Closes Discord processes
@@ -199,7 +208,7 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 5. **Validates binary** — checks original bytes at 3 code sections to confirm correct build
 6. PowerShell generates C++ patcher code with your settings
 7. Compiles to an executable using your C++ compiler
-8. Applies **bounds-checked** binary patches at specific memory offsets
+8. Applies **bounds-checked** binary patches at 18 specific memory offsets
 9. Cleans up temporary compiler artifacts
 10. Optionally relaunches Discord
 
@@ -208,29 +217,37 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 | Component | Change |
 |-----------|--------|
 | Stereo | Disables mono downmix |
-| Bitrate | Removes 64kbps cap → 382kbps |
+| Bitrate | Removes 64kbps cap → 512kbps |
 | Sample Rate | Bypasses 24kHz limit → 48kHz |
+| Duplicate Bitrate Path | Patches parallel calculation function |
+| Encoder Init | Hot-starts both constructors at 512kbps |
 | Audio Processing | Replaces filters with gain control |
 | Error Handler | Disabled to prevent patch-related throws |
 
 ### Offset Table (Feb 9, 2026 Build)
 
 ```
-0x53840B  EmulateStereoSuccess1   → 02
-0x538417  EmulateStereoSuccess2   → EB (JMP)
-0x118C41  CreateAudioFrameStereo  → 49 89 C5 90
-0x3A7374  OpusConfigChannels      → 02
-0x53886A  BitrateModified         → F0 D4 05 (382kbps)
-0x538573  Emulate48Khz            → 90 90 90
-0x544680  HighPassFilter          → mov rax, <HPC VA>; ret
-0x8BD4C0  HighpassCutoffFilter    → injected hp_cutoff()
-0x8BD6A0  DcReject                → injected dc_reject()
-0x8B9830  DownmixFunc             → C3 (ret)
-0x3A7610  ConfigIsOk              → return 1
-0x2C0040  ThrowError              → C3 (ret)
+0x53840B  EmulateStereoSuccess1            → 02
+0x538417  EmulateStereoSuccess2            → EB (JMP)
+0x118C41  CreateAudioFrameStereo           → 49 89 C5 90
+0x3A7374  OpusConfigChannels               → 02
+0x0D7E49  MonoDownmixer                    → NOP sled + JMP
+0x53886A  EmulateBitrateModified           → 00 D0 07 (512kbps)
+0x53A691  SetsBitrateBitrateValue          → 00 D0 07 00 00
+0x53A699  SetsBitrateBitwiseOr             → 90 90 90
+0x53D750  DuplicateEmulateBitrateModified  → 00 D0 07 (512kbps)
+0x538573  Emulate48Khz                     → 90 90 90
+0x544680  HighPassFilter                   → mov rax, <HPC VA>; ret
+0x8BD4C0  HighpassCutoffFilter             → injected hp_cutoff()
+0x8BD6A0  DcReject                         → injected dc_reject()
+0x8B9830  DownmixFunc                      → C3 (ret)
+0x3A7610  ConfigIsOk                       → return 1
+0x2C0040  ThrowError                       → C3 (ret)
+0x3A737E  EncoderConfigInit1               → 00 D0 07 00 (512kbps default)
+0x3A6C87  EncoderConfigInit2               → 00 D0 07 00 (512kbps default)
 ```
 
-### Safety Features (New in v4.0)
+### Safety Features
 
 | Check | What It Catches |
 |-------|----------------|
