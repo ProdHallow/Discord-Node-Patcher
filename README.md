@@ -137,8 +137,6 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 - 🚀 **NEW:** Bitrate upgraded from 382kbps to 512kbps across all patch sites
 - 🚀 **NEW:** `DuplicateEmulateBitrateModified` (`0x53D750`) — patches the parallel bitrate calculation function that bypassed the original `SetBitrate` path, preventing 32kbps leakthrough
 - 🚀 **NEW:** `EncoderConfigInit1` (`0x3A737E`) and `EncoderConfigInit2` (`0x3A6C87`) — patches both Opus encoder config constructors to initialize at 512kbps instead of 32kbps default
-- 🚀 **NEW:** Offset finder updated to 18/18 — new `EncoderConfigInit2` independent signature + derivation rules for `EncoderConfigInit1` and `DuplicateEmulateBitrateModified`
-- 🔀 **CHANGED:** Patcher step count 4→5; new step [5/5] applies encoder config init patches
 - 🔀 **CHANGED:** All bitrate bytes updated: `\xF0\xD4\x05` (382kbps) → `\x00\xD0\x07` (512kbps)
 - 🧹 **CLEANUP:** Section comment blocks converted to `# region` / `# endregion` style
 
