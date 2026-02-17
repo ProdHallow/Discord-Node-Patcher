@@ -45,7 +45,7 @@ Paste into PowerShell and press Enter.
 | Before | After |
 |:------:|:-----:|
 | 24 kHz | **48 kHz** |
-| ~64 kbps | **512 kbps** |
+| ~64 kbps | **400 kbps** |
 | Mono | **True Stereo** |
 | Fixed gain | **1x-10x Adjustable** |
 
@@ -57,9 +57,9 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 
 | Feature | Description |
 |---------|-------------|
-| **512kbps Bitrate** | Upgraded from 382kbps to 512kbps — matches the maximum Opus bitrate used by the reference encoder |
+| **400kbps Bitrate** | Upgraded from 382kbps to 400kbps — matches the maximum Opus bitrate used by the reference encoder |
 | **Duplicate Bitrate Path Patched** | Discovered and patched a parallel bitrate calculation function (`0x53D750`) that the original patcher missed — eliminates a leak path where the old 32kbps value could persist |
-| **Encoder Config Hot-Start** | Two Opus encoder config constructors (`0x3A737E`, `0x3A6C87`) now initialize at 512kbps instead of 32kbps — closes the window between encoder creation and the first `SetBitrate` call |
+| **Encoder Config Hot-Start** | Two Opus encoder config constructors (`0x3A737E`, `0x3A6C87`) now initialize at 400kbps instead of 32kbps — closes the window between encoder creation and the first `SetBitrate` call |
 | **18 Total Offsets** | Up from 15 — patcher updated for full coverage |
 
 ---
@@ -132,11 +132,11 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 <details>
 <summary><h2>📋 Changelog</h2></summary>
 
-### v5.0 (Current) — 512kbps + Full Bitrate Coverage
-- 🚀 **NEW:** Bitrate upgraded from 382kbps to 512kbps across all patch sites
+### v5.0 (Current) — 400kbps + Full Bitrate Coverage
+- 🚀 **NEW:** Bitrate upgraded from 382kbps to 400kbps across all patch sites
 - 🚀 **NEW:** `DuplicateEmulateBitrateModified` (`0x53D750`) — patches the parallel bitrate calculation function that bypassed the original `SetBitrate` path, preventing 32kbps leakthrough
-- 🚀 **NEW:** `EncoderConfigInit1` (`0x3A737E`) and `EncoderConfigInit2` (`0x3A6C87`) — patches both Opus encoder config constructors to initialize at 512kbps instead of 32kbps default
-- 🔀 **CHANGED:** All bitrate bytes updated: `\xF0\xD4\x05` (382kbps) → `\x00\xD0\x07` (512kbps)
+- 🚀 **NEW:** `EncoderConfigInit1` (`0x3A737E`) and `EncoderConfigInit2` (`0x3A6C87`) — patches both Opus encoder config constructors to initialize at 400kbps instead of 32kbps default
+- 🔀 **CHANGED:** All bitrate bytes updated: `\xF0\xD4\x05` (382kbps) → `\x00\xD0\x07` (400kbps)
 - 🧹 **CLEANUP:** Section comment blocks converted to `# region` / `# endregion` style
 
 ### v4.0 — February 2026 Build
@@ -214,10 +214,10 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 | Component | Change |
 |-----------|--------|
 | Stereo | Disables mono downmix |
-| Bitrate | Removes 64kbps cap → 512kbps |
+| Bitrate | Removes 64kbps cap → 400kbps |
 | Sample Rate | Bypasses 24kHz limit → 48kHz |
 | Duplicate Bitrate Path | Patches parallel calculation function |
-| Encoder Init | Hot-starts both constructors at 512kbps |
+| Encoder Init | Hot-starts both constructors at 400kbps |
 | Audio Processing | Replaces filters with gain control |
 | Error Handler | Disabled to prevent patch-related throws |
 
@@ -229,10 +229,10 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 0x118C41  CreateAudioFrameStereo           → 49 89 C5 90
 0x3A7374  OpusConfigChannels               → 02
 0x0D7E49  MonoDownmixer                    → NOP sled + JMP
-0x53886A  EmulateBitrateModified           → 00 D0 07 (512kbps)
+0x53886A  EmulateBitrateModified           → 00 D0 07 (400kbps)
 0x53A691  SetsBitrateBitrateValue          → 00 D0 07 00 00
 0x53A699  SetsBitrateBitwiseOr             → 90 90 90
-0x53D750  DuplicateEmulateBitrateModified  → 00 D0 07 (512kbps)
+0x53D750  DuplicateEmulateBitrateModified  → 00 D0 07 (400kbps)
 0x538573  Emulate48Khz                     → 90 90 90
 0x544680  HighPassFilter                   → mov rax, <HPC VA>; ret
 0x8BD4C0  HighpassCutoffFilter             → injected hp_cutoff()
@@ -240,8 +240,8 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 0x8B9830  DownmixFunc                      → C3 (ret)
 0x3A7610  ConfigIsOk                       → return 1
 0x2C0040  ThrowError                       → C3 (ret)
-0x3A737E  EncoderConfigInit1               → 00 D0 07 00 (512kbps default)
-0x3A6C87  EncoderConfigInit2               → 00 D0 07 00 (512kbps default)
+0x3A737E  EncoderConfigInit1               → 00 D0 07 00 (400kbps default)
+0x3A6C87  EncoderConfigInit2               → 00 D0 07 00 (400kbps default)
 ```
 
 ### Safety Features
