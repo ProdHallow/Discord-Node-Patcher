@@ -216,9 +216,48 @@ if (process.platform === 'win32') {
 }
 
 function bindConnectionInstance(instance) {
+  const originalSetTransportOptions = instance.setTransportOptions.bind(instance);
   return {
     destroy: () => instance.destroy(),
-    setTransportOptions: (options) => instance.setTransportOptions(options),
+    setTransportOptions: (options) => {
+      // Only disable audio processing filters — the binary patch handles
+      // stereo, bitrate (512kbps), sample rate (48kHz), and encoder config.
+      // Do NOT replace audioEncoder or its params — that breaks encryption.
+      if (options) {
+        options.echoCancellation = false;
+        options.noiseSuppression = false;
+        options.automaticGainControl = false;
+
+        // ── Video / camera patch ──────────────────────────────────
+        options.videoEncoder = options.videoEncoder || {};
+        options.videoEncoder.type = 'H264';
+        options.videoEncoder.width = 1920;
+        options.videoEncoder.height = 1080;
+        options.videoEncoder.framerate = 60;
+        options.videoEncoder.profile = 'high';
+        options.videoEncoder.h264Profile = 100;
+        options.videoEncoder.preset = 'veryfast';
+        options.videoEncoder.tune = 'zerolatency';
+
+        options.videoBitrate = 10000000;
+        options.videoBitrateMax = 10000000;
+        options.videoBitrateMin = 3000000;
+        options.videoBitrateTarget = 10000000;
+
+        options.videoQualityMode = 2;
+        options.keyframeInterval = 3000;
+        options.qpMin = 0;
+        options.qpMax = 30;
+        options.prioritizeFramerate = true;
+        options.maxFramerate = 60;
+        options.minFramerate = 60;
+
+        options.hardwareH264 = true;
+        options.adaptiveBitrate = false;
+        options.adaptiveFramerate = false;
+      }
+      return originalSetTransportOptions(options);
+    },
     setSelfMute: (mute) => instance.setSelfMute(mute),
     setSelfDeafen: (deaf) => instance.setSelfDeafen(deaf),
     mergeUsers: (users) => instance.mergeUsers(users),
@@ -522,75 +561,7 @@ VoiceEngine.initialize({
   asyncClipsSourceDeinit,
 });
 
-console.log('[PATCH] Applying audio and video settings...');
-
-const originalSetTransportOptions = VoiceEngine.setTransportOptions;
-
-VoiceEngine.setTransportOptions = function (options) {
-  console.log('[PATCH] Incoming transport options:', JSON.stringify(options, null, 2));
-
-  // ── Audio patch ───────────────────────────────────────────────
-  options.echoCancellation = false;
-  options.noiseSuppression = false;
-  options.automaticGainControl = false;
-  options.disable_agc = true;
-  options.disable_noise_suppression = true;
-  options.disable_echo_cancellation = true;
-
-  // Transport-level voice bitrate
-  options.encodingVoiceBitRate = 512000;
-
-  // Opus encoder parameters
-  options.audioEncoder = options.audioEncoder || {};
-  options.audioEncoder.freq = 48000;
-  options.audioEncoder.rate = 512000;
-  options.audioEncoder.pacsize = 960;
-  options.audioEncoder.bits_per_sample = 16;
-  options.audioEncoder.params = {
-    maxaveragebitrate: 512000,
-    maxplaybackrate: 48000,
-    cbr: 1,
-    useinbandfec: 0,
-    usedtx: 0,
-  };
-
-  // ── Video patch ───────────────────────────────────────────────
-  options.videoEncoder = options.videoEncoder || {};
-  options.videoEncoder.type = 'H264';
-  options.videoEncoder.width = 1920;
-  options.videoEncoder.height = 1080;
-  options.videoEncoder.framerate = 60;
-  options.videoEncoder.profile = 'high';
-  options.videoEncoder.h264Profile = 100;
-  options.videoEncoder.preset = 'veryfast';
-  options.videoEncoder.tune = 'zerolatency';
-
-  // Video bitrate
-  options.videoBitrate = 10000000;
-  options.videoBitrateMax = 10000000;
-  options.videoBitrateMin = 3000000;
-  options.videoBitrateTarget = 10000000;
-
-  // Video quality settings
-  options.videoQualityMode = 2;
-  options.keyframeInterval = 3000;
-  options.qpMin = 0;
-  options.qpMax = 30;
-  options.prioritizeFramerate = true;
-  options.maxFramerate = 60;
-  options.minFramerate = 60;
-
-  // Hardware / adaptive settings
-  options.hardwareH264 = true;
-  options.adaptiveBitrate = false;
-  options.adaptiveFramerate = false;
-
-  console.log('[PATCH] Final transport options:', JSON.stringify(options, null, 2));
-
-  return originalSetTransportOptions.call(this, options);
-};
-
-console.log('[PATCH] Audio: Echo cancellation, noise suppression, and AGC disabled. Bitrate set to 512kbps.');
-console.log('[PATCH] Video: 1920×1080 @ 60 fps, 10 Mbps target, H.264 High Profile.');
+console.log('[PATCH] Audio: filters disabled (echo/noise/AGC). Binary patch handles stereo, 512kbps, 48kHz.');
+console.log('[PATCH] Video: 1920x1080 @ 60fps, 10Mbps target, H.264 High Profile.');
 
 module.exports = VoiceEngine;
