@@ -221,7 +221,7 @@ function bindConnectionInstance(instance) {
     destroy: () => instance.destroy(),
     setTransportOptions: (options) => {
       // Only disable audio processing filters — the binary patch handles
-      // stereo, bitrate (512kbps), sample rate (48kHz), and encoder config.
+      // stereo, bitrate (400kbps), sample rate (48kHz), and encoder config.
       // Do NOT replace audioEncoder or its params — that breaks encryption.
       if (options) {
         options.echoCancellation = false;
@@ -561,7 +561,7 @@ VoiceEngine.initialize({
   asyncClipsSourceDeinit,
 });
 
-console.log('[PATCH] Audio: filters disabled (echo/noise/AGC). Binary patch handles stereo, 512kbps, 48kHz.');
+console.log('[PATCH] Audio: filters disabled (echo/noise/AGC). Binary patch handles stereo, 400kbps, 48kHz.');
 console.log('[PATCH] Video: 1920x1080 @ 60fps, 10Mbps target, H.264 High Profile.');
 
 module.exports = VoiceEngine;
