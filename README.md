@@ -1,6 +1,6 @@
 # 🎙️ Discord Voice Node Patcher
 
-**Studio-grade audio for Discord: 48kHz • 512kbps • True Stereo**
+**Studio-grade audio for Discord: 48kHz • 400kbps • True Stereo**
 
 ![Version](https://img.shields.io/badge/Version-5.0-5865F2?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square)
