@@ -41,7 +41,7 @@ const EXPECTED_SAFETY_PATTERNS = [
   },
   {
     name: 'ReadU32LE helper',
-    regex: /auto ReadU32LE = \[\]\(uint32_t offset, uint32_t& value\) -> bool/,
+    regex: /auto ReadU32LE = \[\&\]\(uint32_t offset, uint32_t& value\) -> bool/,
   },
   {
     name: 'post-patch bitrate integer equality check',
