@@ -32,7 +32,7 @@ if (isElectronRenderer) {
   }
 }
 
-const isFileManagerAvailable = window?.DiscordNative?.fileManager;
+const isFileManagerAvailable = isElectronRenderer ? window.DiscordNative.fileManager : null;
 const isLogDirAvailable = isFileManagerAvailable?.getAndCreateLogDirectorySync;
 let logDirectory;
 if (isLogDirAvailable) {
@@ -79,13 +79,11 @@ function parseArguments(args) {
   for (let i = 0; i < args.length; i++) {
     const parts = args[i].split('=');
     const arg = parts[0];
-    const inlineValue = parts.slice(1).join('=');
+    const hasInlineValue = parts.length > 1;
+    const inlineValue = hasInlineValue ? parts.slice(1).join('=') : undefined;
 
     function getValue() {
-      if (inlineValue !== undefined) {
-        return inlineValue;
-      }
-      return args[++i];
+      return hasInlineValue ? inlineValue : args[++i];
     }
 
     switch (arg) {
@@ -124,6 +122,43 @@ const useFakeVideoCapture = argv['use-fake-video-capture'];
 const useFileForFakeVideoCapture = argv['use-file-for-fake-video-capture'];
 const useFakeAudioCapture = argv['use-fake-audio-capture'];
 const useFilesForFakeAudioCapture = argv['use-files-for-fake-audio-capture'];
+const FORCED_AUDIO_BITRATE = 400000;
+
+function applyAudioTransportPatch(options) {
+  const patchedOptions = options ?? {};
+  patchedOptions.audioEncoder = patchedOptions.audioEncoder || {};
+  patchedOptions.audioEncoder.params = {
+    ...(patchedOptions.audioEncoder.params || {}),
+    maxaveragebitrate: FORCED_AUDIO_BITRATE,
+    useinbandfec: 0,
+    usedtx: 0,
+    cbr: 1,
+    maxplaybackrate: 48000,
+  };
+  patchedOptions.audioEncoder.freq = 48000;
+  patchedOptions.audioEncoder.rate = FORCED_AUDIO_BITRATE;
+  patchedOptions.audioEncoder.pacsize = 960;
+  patchedOptions.audioEncoder.bits_per_sample = 16;
+
+  patchedOptions.disable_agc = true;
+  patchedOptions.disable_noise_suppression = true;
+  patchedOptions.disable_echo_cancellation = true;
+  patchedOptions.echoCancellation = false;
+  patchedOptions.noiseSuppression = false;
+  patchedOptions.automaticGainControl = false;
+
+  patchedOptions.encodingVoiceBitRate = FORCED_AUDIO_BITRATE;
+  patchedOptions.encodingVoiceBitrate = FORCED_AUDIO_BITRATE;
+  return patchedOptions;
+}
+
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (error) {
+    return `[unserializable options: ${error.message}]`;
+  }
+}
 
 features.declareSupported('voice_panning');
 features.declareSupported('voice_multiple_connections');
@@ -221,34 +256,7 @@ function bindConnectionInstance(instance) {
   return {
     destroy: () => instance.destroy(),
 
-    setTransportOptions: (options) => {
-      // High-quality Opus encoder settings
-      if (options.audioEncoder) {
-        options.audioEncoder.params = {
-          maxaveragebitrate: 400000,
-          useinbandfec: 0,
-          usedtx: 0,
-          cbr: 1,
-          maxplaybackrate: 48000,
-        };
-        options.audioEncoder.freq = 48000;
-        options.audioEncoder.rate = 400000;
-        options.audioEncoder.pacsize = 960;
-        options.audioEncoder.bits_per_sample = 16;
-      }
-
-      options.disable_agc = true;
-      options.disable_noise_suppression = true;
-      options.disable_echo_cancellation = true;
-
-      if (options.encodingVoiceBitRate) {
-        options.encodingVoiceBitRate = 400000;
-      }
-      if (options.encodingVoiceBitrate) {
-        options.encodingVoiceBitrate = 400000;
-      }
-      return instance.setTransportOptions(options);
-    },
+    setTransportOptions: (options) => instance.setTransportOptions(applyAudioTransportPatch(options)),
     setSelfMute: (mute) => instance.setSelfMute(mute),
     setSelfDeafen: (deaf) => instance.setSelfDeafen(deaf),
 
@@ -581,51 +589,42 @@ console.log('[PATCH] Applying audio and video settings...');
 
 const originalSetTransportOptions = VoiceEngine.setTransportOptions;
 VoiceEngine.setTransportOptions = function(options) {
-  console.log('[PATCH] Original options:', JSON.stringify(options, null, 2));
-  
-  // Audio processing
-  options.echoCancellation = false;
-  options.noiseSuppression = false;
-  options.automaticGainControl = false;
-  
-  // Audio bitrate
-  if (options.encodingVoiceBitrate) {
-    options.encodingVoiceBitrate = 400000;
-  }
+  console.log('[PATCH] Original options:', safeStringify(options));
+  const patchedOptions = applyAudioTransportPatch(options);
   
   // Video encoder settings
-  options.videoEncoder = options.videoEncoder || {};
-  options.videoEncoder.type = 'H264';
-  options.videoEncoder.width = 1920;
-  options.videoEncoder.height = 1080;
-  options.videoEncoder.framerate = 60;
-  options.videoEncoder.profile = 'high';
-  options.videoEncoder.h264Profile = 100;
-  options.videoEncoder.preset = 'veryfast';
-  options.videoEncoder.tune = 'zerolatency';
+  patchedOptions.videoEncoder = patchedOptions.videoEncoder || {};
+  patchedOptions.videoEncoder.type = 'H264';
+  patchedOptions.videoEncoder.width = 1920;
+  patchedOptions.videoEncoder.height = 1080;
+  patchedOptions.videoEncoder.framerate = 60;
+  patchedOptions.videoEncoder.profile = 'high';
+  patchedOptions.videoEncoder.h264Profile = 100;
+  patchedOptions.videoEncoder.preset = 'veryfast';
+  patchedOptions.videoEncoder.tune = 'zerolatency';
   
   // Video bitrate
-  options.videoBitrate = 10000000;
-  options.videoBitrateMax = 10000000;
-  options.videoBitrateMin = 3000000;
-  options.videoBitrateTarget = 10000000;
+  patchedOptions.videoBitrate = 10000000;
+  patchedOptions.videoBitrateMax = 10000000;
+  patchedOptions.videoBitrateMin = 3000000;
+  patchedOptions.videoBitrateTarget = 10000000;
   
   // Video quality settings
-  options.videoQualityMode = 2;
-  options.keyframeInterval = 3000;
-  options.qpMin = 0;
-  options.qpMax = 30;
-  options.prioritizeFramerate = true;
-  options.maxFramerate = 60;
-  options.minFramerate = 60;
+  patchedOptions.videoQualityMode = 2;
+  patchedOptions.keyframeInterval = 3000;
+  patchedOptions.qpMin = 0;
+  patchedOptions.qpMax = 30;
+  patchedOptions.prioritizeFramerate = true;
+  patchedOptions.maxFramerate = 60;
+  patchedOptions.minFramerate = 60;
   
   // Hardware settings
-  options.hardwareH264 = true;
-  options.adaptiveBitrate = false;
-  options.adaptiveFramerate = false;
+  patchedOptions.hardwareH264 = true;
+  patchedOptions.adaptiveBitrate = false;
+  patchedOptions.adaptiveFramerate = false;
   
-  console.log('[PATCH] Final options:', JSON.stringify(options, null, 2));
-  return originalSetTransportOptions.call(this, options);
+  console.log('[PATCH] Final options:', safeStringify(patchedOptions));
+  return originalSetTransportOptions.call(this, patchedOptions);
 };
 
 console.log('[PATCH] Audio: Echo cancellation, noise suppression, and AGC disabled. Bitrate set to 400kbps.');

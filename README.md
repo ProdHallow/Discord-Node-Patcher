@@ -136,7 +136,7 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 - 🚀 **NEW:** Bitrate upgraded from 382kbps to 400kbps across all patch sites
 - 🚀 **NEW:** `DuplicateEmulateBitrateModified` (`0x53D750`) — patches the parallel bitrate calculation function that bypassed the original `SetBitrate` path, preventing 32kbps leakthrough
 - 🚀 **NEW:** `EncoderConfigInit1` (`0x3A737E`) and `EncoderConfigInit2` (`0x3A6C87`) — patches both Opus encoder config constructors to initialize at 400kbps instead of 32kbps default
-- 🔀 **CHANGED:** All bitrate bytes updated: `\xF0\xD4\x05` (382kbps) → `\x00\xD0\x07` (400kbps)
+- 🔀 **CHANGED:** All bitrate bytes updated: `\xF0\xD4\x05` (382kbps) → `\x80\x1A\x06` (400kbps / 0x61A80)
 - 🧹 **CLEANUP:** Section comment blocks converted to `# region` / `# endregion` style
 
 ### v4.0 — February 2026 Build
@@ -229,10 +229,10 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 0x118C41  CreateAudioFrameStereo           → 49 89 C5 90
 0x3A7374  OpusConfigChannels               → 02
 0x0D7E49  MonoDownmixer                    → NOP sled + JMP
-0x53886A  EmulateBitrateModified           → 00 D0 07 (400kbps)
-0x53A691  SetsBitrateBitrateValue          → 00 D0 07 00 00
+0x53886A  EmulateBitrateModified           → 80 1A 06 (400kbps)
+0x53A691  SetsBitrateBitrateValue          → 80 1A 06 00 00
 0x53A699  SetsBitrateBitwiseOr             → 90 90 90
-0x53D750  DuplicateEmulateBitrateModified  → 00 D0 07 (400kbps)
+0x53D750  DuplicateEmulateBitrateModified  → 80 1A 06 (400kbps)
 0x538573  Emulate48Khz                     → 90 90 90
 0x544680  HighPassFilter                   → mov rax, <HPC VA>; ret
 0x8BD4C0  HighpassCutoffFilter             → injected hp_cutoff()
@@ -240,8 +240,8 @@ irm https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026
 0x8B9830  DownmixFunc                      → C3 (ret)
 0x3A7610  ConfigIsOk                       → return 1
 0x2C0040  ThrowError                       → C3 (ret)
-0x3A737E  EncoderConfigInit1               → 00 D0 07 00 (400kbps default)
-0x3A6C87  EncoderConfigInit2               → 00 D0 07 00 (400kbps default)
+0x3A737E  EncoderConfigInit1               → 80 1A 06 00 (400kbps default)
+0x3A6C87  EncoderConfigInit2               → 80 1A 06 00 (400kbps default)
 ```
 
 ### Safety Features
