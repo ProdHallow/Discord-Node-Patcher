@@ -34,6 +34,29 @@ const EXPECTED_PATCH_PATTERNS = [
   },
 ];
 
+const EXPECTED_SAFETY_PATTERNS = [
+  {
+    name: 'post-patch bitrate byte verification',
+    regex: /Post-patch verification: enforce 400000 bps bytes at every bitrate patch site\./,
+  },
+  {
+    name: 'ReadU32LE helper',
+    regex: /auto ReadU32LE = \[\]\(uint32_t offset, uint32_t& value\) -> bool/,
+  },
+  {
+    name: 'post-patch bitrate integer equality check',
+    regex: /setBitrateValue != 400000 \|\| encoderInit1Value != 400000 \|\| encoderInit2Value != 400000/,
+  },
+  {
+    name: 'partial read guard',
+    regex: /if \(bytesRead != \(DWORD\)fileSize\.QuadPart\)/,
+  },
+  {
+    name: 'partial write guard',
+    regex: /if \(bytesWritten != \(DWORD\)fileSize\.QuadPart\)/,
+  },
+];
+
 const README_EXPECTED_PATTERNS = [
   /80 1A 06 \(400kbps\)/,
   /80 1A 06 00 00/,
@@ -66,6 +89,9 @@ check(/400000\s*=\s*0x61A80/.test(patcher), 'Patcher source comment no longer do
 for (const expected of EXPECTED_PATCH_PATTERNS) {
   check(expected.regex.test(patcher), `Missing or incorrect patch bytes for ${expected.name}.`);
 }
+for (const expected of EXPECTED_SAFETY_PATTERNS) {
+  check(expected.regex.test(patcher), `Missing runtime safety check: ${expected.name}.`);
+}
 
 check(!/\\x00\\xD0\\x07/.test(patcher), 'Incorrect 512 kbps byte pattern found in patcher source.');
 check(!/\b00 D0 07\b/.test(readme), 'README still references 00 D0 07 (512 kbps) as 400 kbps.');
@@ -89,4 +115,7 @@ if (failures.length > 0) {
 
 console.log('[PASS] 400kbps verification passed.');
 console.log(`       Target bitrate: ${BITRATE_BPS} bps (${BITRATE_HEX})`);
-console.log(`       Checked ${EXPECTED_PATCH_PATTERNS.length} binary patch sites + docs + JS transport patching.`);
+console.log(
+  `       Checked ${EXPECTED_PATCH_PATTERNS.length} binary patch sites, `
+  + `${EXPECTED_SAFETY_PATTERNS.length} runtime safety guards, docs, and JS transport patching.`,
+);

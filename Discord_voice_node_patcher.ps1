@@ -869,6 +869,13 @@ private:
             return true;
         };
 
+        auto ReadU32LE = [&](uint32_t offset, uint32_t& value) -> bool {
+            uint32_t fileOffset = offset - Offsets::FILE_OFFSET_ADJUSTMENT;
+            if ((LONGLONG)(fileOffset + 4) > fileSize) return false;
+            memcpy(&value, (char*)fileData + fileOffset, 4);
+            return true;
+        };
+
         printf("  [1/5] Enabling stereo audio...\n");
         if (!PatchBytes(Offsets::EmulateStereoSuccess1, "\x02", 1)) return false;
         if (!PatchBytes(Offsets::EmulateStereoSuccess2, "\xEB", 1)) return false;
@@ -913,6 +920,38 @@ private:
         // and first SetBitrate call. 400000 = 0x61A80.
         if (!PatchBytes(Offsets::EncoderConfigInit1, "\x80\x1A\x06\x00", 4)) return false;
         if (!PatchBytes(Offsets::EncoderConfigInit2, "\x80\x1A\x06\x00", 4)) return false;
+
+        // Post-patch verification: enforce 400000 bps bytes at every bitrate patch site.
+        const unsigned char bps400_3[] = {0x80, 0x1A, 0x06};
+        const unsigned char bps400_4[] = {0x80, 0x1A, 0x06, 0x00};
+        const unsigned char bps400_5[] = {0x80, 0x1A, 0x06, 0x00, 0x00};
+        if (!CheckBytes(Offsets::EmulateBitrateModified, bps400_3, 3) ||
+            !CheckBytes(Offsets::DuplicateEmulateBitrateModified, bps400_3, 3) ||
+            !CheckBytes(Offsets::SetsBitrateBitrateValue, bps400_5, 5) ||
+            !CheckBytes(Offsets::EncoderConfigInit1, bps400_4, 4) ||
+            !CheckBytes(Offsets::EncoderConfigInit2, bps400_4, 4)) {
+            printf("ERROR: Post-patch bitrate verification failed.\n");
+            printf("Expected 400000 bps byte pattern (80 1A 06) was not present at all sites.\n");
+            return false;
+        }
+
+        uint32_t setBitrateValue = 0;
+        uint32_t encoderInit1Value = 0;
+        uint32_t encoderInit2Value = 0;
+        if (!ReadU32LE(Offsets::SetsBitrateBitrateValue, setBitrateValue) ||
+            !ReadU32LE(Offsets::EncoderConfigInit1, encoderInit1Value) ||
+            !ReadU32LE(Offsets::EncoderConfigInit2, encoderInit2Value)) {
+            printf("ERROR: Failed to read back bitrate values for verification.\n");
+            return false;
+        }
+        if (setBitrateValue != 400000 || encoderInit1Value != 400000 || encoderInit2Value != 400000) {
+            printf("ERROR: Bitrate verification mismatch after patching.\n");
+            printf("  SetBitrate=%u, EncoderInit1=%u, EncoderInit2=%u (expected all 400000)\n",
+                   setBitrateValue, encoderInit1Value, encoderInit2Value);
+            return false;
+        }
+        printf("  Verified bitrate values: %u / %u / %u bps\n",
+               setBitrateValue, encoderInit1Value, encoderInit2Value);
         printf("  All patches applied successfully!\n");
         return true;
     }
@@ -953,12 +992,24 @@ public:
         if (!ReadFile(file, fileData, (DWORD)fileSize.QuadPart, &bytesRead, NULL)) {
             printf("ERROR: Cannot read file\n"); VirtualFree(fileData, 0, MEM_RELEASE); CloseHandle(file); return false;
         }
+        if (bytesRead != (DWORD)fileSize.QuadPart) {
+            printf("ERROR: Partial read (%lu / %lld bytes)\n", bytesRead, fileSize.QuadPart);
+            VirtualFree(fileData, 0, MEM_RELEASE); CloseHandle(file); return false;
+        }
         if (!ApplyPatches(fileData, fileSize.QuadPart)) { VirtualFree(fileData, 0, MEM_RELEASE); CloseHandle(file); return false; }
         printf("\nWriting patched file...\n");
-        SetFilePointer(file, 0, NULL, FILE_BEGIN);
+        DWORD seekResult = SetFilePointer(file, 0, NULL, FILE_BEGIN);
+        if (seekResult == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+            printf("ERROR: Cannot rewind file pointer (Error: %lu)\n", GetLastError());
+            VirtualFree(fileData, 0, MEM_RELEASE); CloseHandle(file); return false;
+        }
         DWORD bytesWritten;
         if (!WriteFile(file, fileData, (DWORD)fileSize.QuadPart, &bytesWritten, NULL)) {
             printf("ERROR: Cannot write file (Error: %lu)\n", GetLastError());
+            VirtualFree(fileData, 0, MEM_RELEASE); CloseHandle(file); return false;
+        }
+        if (bytesWritten != (DWORD)fileSize.QuadPart) {
+            printf("ERROR: Partial write (%lu / %lld bytes)\n", bytesWritten, fileSize.QuadPart);
             VirtualFree(fileData, 0, MEM_RELEASE); CloseHandle(file); return false;
         }
         VirtualFree(fileData, 0, MEM_RELEASE);
