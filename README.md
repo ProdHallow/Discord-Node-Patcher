@@ -12,7 +12,7 @@
 
 ### Option 1: One-Click BAT (Recommended)
 
-[**📥 Download DiscordVoicePatcher.bat**](https://github.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/releases/latest)
+[**📥 Download DiscordVoicePatcher.bat**](https://github.com/ProdHallow/Discord-Node-Patcher/releases/latest)
 
 Just download and double-click. Always runs the latest version.
 
@@ -26,12 +26,12 @@ Just download and double-click. Always runs the latest version.
 
 #### PowerShell (recommended)
 ```powershell
-$ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1' -OutFile $p; powershell -NoProfile -ExecutionPolicy Bypass -File $p
+$ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher/main/Discord_voice_node_patcher.ps1' -OutFile $p; powershell -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
 #### Command Prompt (cmd.exe)
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1' -OutFile $p; & $p"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher/main/Discord_voice_node_patcher.ps1' -OutFile $p; & $p"
 ```
 
 Paste into the matching shell and press Enter.
@@ -138,7 +138,7 @@ notepad "$env:TEMP\DiscordVoicePatcher\patcher.log"
 ### Restore Original
 ```powershell
 # (PowerShell) Run the patcher again, then select "Restore" in the GUI
-$ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/main/Discord_voice_node_patcher.ps1' -OutFile $p; powershell -NoProfile -ExecutionPolicy Bypass -File $p
+$ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher/main/Discord_voice_node_patcher.ps1' -OutFile $p; powershell -NoProfile -ExecutionPolicy Bypass -File $p
 # Then select "Restore" in the GUI
 ```
 
@@ -162,7 +162,7 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invo
 - 🚀 **NEW:** File size gate (12–18 MB) rejects obviously wrong binaries before any patches are attempted
 - 🚀 **NEW:** Dynamic HighPassFilter stub — `mov rax, IMAGE_BASE + HighpassCutoffFilter; ret` computed at compile time from offset constants, no more hardcoded byte strings
 - 🛡️ **SECURITY:** Auto-updater now compares `[version]` objects and refuses downgrades (prevents v4.0 → v3.1 regression from stale remote)
-- 🔀 **CHANGED:** Repository moved to [Discord-Node-Patcher-Feb-9-2026](https://github.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026)
+- 🔀 **CHANGED:** Repository moved to [Discord-Node-Patcher](https://github.com/ProdHallow/Discord-Node-Patcher)
 - 🔀 **CHANGED:** Voice backup files hosted in new repo's `discord_voice/` directory
 - 🛠️ **FIXED:** `char` signedness — HighPassFilter stub uses `unsigned char` array instead of signed `char` casts
 
@@ -204,7 +204,7 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invo
 - ✨ Disk-based detection (no voice channel needed)
 - ✨ Auto-elevation
 
-[View full changelog →](https://github.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/releases)
+[View full changelog →](https://github.com/ProdHallow/Discord-Node-Patcher/releases)
 
 </details>
 
@@ -285,6 +285,6 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; Invo
 
 <div align="center">
 
-**[Report Issue](https://github.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/issues)** · **[Releases](https://github.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026/releases)** · **[Source Code](https://github.com/ProdHallow/Discord-Node-Patcher-Feb-9-2026)**
+**[Report Issue](https://github.com/ProdHallow/Discord-Node-Patcher/issues)** · **[Releases](https://github.com/ProdHallow/Discord-Node-Patcher/releases)** · **[Source Code](https://github.com/ProdHallow/Discord-Node-Patcher)**
 
 </div>
