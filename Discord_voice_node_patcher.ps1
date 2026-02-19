@@ -14,8 +14,47 @@ $ProgressPreference = 'SilentlyContinue'
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue
 
-$Script:UPDATE_URL = "https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher/main/Discord_voice_node_patcher.ps1?v=5.0.1"
+$Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher/main/Discord_voice_node_patcher.ps1"
 $Script:SCRIPT_VERSION = "5.0.1"
+
+# region Offsets (PASTE HERE)
+#
+# This patcher uses ONE offsets table.
+# When Discord updates and your offset finder produces new values, paste them here.
+#
+# Tip: keep the MD5/Size in OffsetsMeta updated too. If it doesn't match the downloaded
+# discord_voice.node, the script will stop early with a clear message instead of failing
+# later with a confusing "Binary validation failed".
+#
+$Script:OffsetsMeta = @{
+    FinderVersion = "discord_voice_node_offset_finder.py v5.0"
+    Build         = "Feb 17 2026"
+    Size          = 14296504
+    MD5           = "e0b7be3c766406a5b2a7be412e3610d7"
+}
+
+$Script:Offsets = @{
+    CreateAudioFrameStereo            = 0x118E11
+    AudioEncoderOpusConfigSetChannels = 0x3A72A4
+    MonoDownmixer                     = 0xD8019
+    EmulateStereoSuccess1             = 0x538D2B
+    EmulateStereoSuccess2             = 0x538D37
+    EmulateBitrateModified            = 0x53918A
+    SetsBitrateBitrateValue           = 0x53AFB1
+    SetsBitrateBitwiseOr              = 0x53AFB9
+    Emulate48Khz                      = 0x538E93
+    HighPassFilter                    = 0x544FA0
+    HighpassCutoffFilter              = 0x8BD4C0
+    DcReject                          = 0x8BD6A0
+    DownmixFunc                       = 0x8B9830
+    AudioEncoderOpusConfigIsOk        = 0x3A7540
+    ThrowError                        = 0x2BFF70
+    DuplicateEmulateBitrateModified   = 0x53E070
+    EncoderConfigInit1                = 0x3A72AE
+    EncoderConfigInit2                = 0x3A6BB7
+}
+
+# endregion Offsets
 
 # region Auto-Elevation
 
@@ -52,30 +91,8 @@ $Script:Config = @{
     LogFile = "$env:TEMP\DiscordVoicePatcher\patcher.log"; ConfigFile = "$env:TEMP\DiscordVoicePatcher\config.json"
     MaxBackupCount = 10
     VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Node-Patcher/contents/discord_voice"
-    # Offsets are selected at runtime based on the downloaded discord_voice.node build.
-    Offsets = @{
-        CreateAudioFrameStereo            = 0x118E11
-        AudioEncoderOpusConfigSetChannels = 0x3A72A4
-        MonoDownmixer                     = 0xD8019
-        EmulateStereoSuccess1             = 0x538D2B
-        EmulateStereoSuccess2             = 0x538D37
-        EmulateBitrateModified            = 0x53918A
-        SetsBitrateBitrateValue           = 0x53AFB1
-        SetsBitrateBitwiseOr              = 0x53AFB9
-        Emulate48Khz                      = 0x538E93
-        HighPassFilter                    = 0x544FA0
-        HighpassCutoffFilter              = 0x8BD4C0
-        DcReject                          = 0x8BD6A0
-        DownmixFunc                       = 0x8B9830
-        AudioEncoderOpusConfigIsOk        = 0x3A7540
-        ThrowError                        = 0x2BFF70
-        DuplicateEmulateBitrateModified   = 0x53E070
-        EncoderConfigInit1                = 0x3A72AE
-        EncoderConfigInit2                = 0x3A6BB7
-    }
-    VoiceNodeBuildName = "Unknown"
-    VoiceNodeMd5 = ""
-    VoiceNodeSize = 0
+    OffsetsMeta = $Script:OffsetsMeta
+    Offsets     = $Script:Offsets
 }
 $Script:DoFixAll = $false
 
@@ -93,66 +110,7 @@ $Script:DiscordClients = [ordered]@{
 
 # endregion Configuration
 
-# region Voice Node Build Profiles (Offsets)
-
-# The patcher is only safe when offsets match the exact discord_voice.node build.
-# Discord updates can shift offsets; we auto-detect the downloaded backup node by MD5 and
-# swap in the correct offset table.
-#
-# If a new build is added to the repo, add a new profile entry here (MD5 + offsets).
-$Script:VoiceNodeBuildProfiles = @(
-    @{
-        Name = "Feb 09 2026"
-        Size = 14296504
-        Md5  = "f91807f817b172b02a1a3d6998ef31ce"
-        Offsets = @{
-            CreateAudioFrameStereo            = 0x118C41
-            AudioEncoderOpusConfigSetChannels = 0x3A7374
-            MonoDownmixer                     = 0x0D7E49
-            EmulateStereoSuccess1             = 0x53840B
-            EmulateStereoSuccess2             = 0x538417
-            EmulateBitrateModified            = 0x53886A
-            SetsBitrateBitrateValue           = 0x53A691
-            SetsBitrateBitwiseOr              = 0x53A699
-            DuplicateEmulateBitrateModified   = 0x53D750
-            Emulate48Khz                      = 0x538573
-            HighPassFilter                    = 0x544680
-            HighpassCutoffFilter              = 0x8BD4C0
-            DcReject                          = 0x8BD6A0
-            DownmixFunc                       = 0x8B9830
-            AudioEncoderOpusConfigIsOk        = 0x3A7610
-            ThrowError                        = 0x2C0040
-            EncoderConfigInit1                = 0x3A737E
-            EncoderConfigInit2                = 0x3A6C87
-        }
-    }
-    @{
-        Name = "Feb 17 2026"
-        Size = 14296504
-        Md5  = "e0b7be3c766406a5b2a7be412e3610d7"
-        Offsets = @{
-            CreateAudioFrameStereo            = 0x118E11
-            AudioEncoderOpusConfigSetChannels = 0x3A72A4
-            MonoDownmixer                     = 0xD8019
-            EmulateStereoSuccess1             = 0x538D2B
-            EmulateStereoSuccess2             = 0x538D37
-            EmulateBitrateModified            = 0x53918A
-            SetsBitrateBitrateValue           = 0x53AFB1
-            SetsBitrateBitwiseOr              = 0x53AFB9
-            Emulate48Khz                      = 0x538E93
-            HighPassFilter                    = 0x544FA0
-            HighpassCutoffFilter              = 0x8BD4C0
-            DcReject                          = 0x8BD6A0
-            DownmixFunc                       = 0x8B9830
-            AudioEncoderOpusConfigIsOk        = 0x3A7540
-            ThrowError                        = 0x2BFF70
-            DuplicateEmulateBitrateModified   = 0x53E070
-            EncoderConfigInit1                = 0x3A72AE
-            EncoderConfigInit2                = 0x3A6BB7
-        }
-    }
-)
-
+# region Voice Node Helpers
 function Get-FileMd5Hex {
     param([Parameter(Mandatory)][string]$Path)
     try {
@@ -170,37 +128,7 @@ function Get-FileMd5Hex {
         } finally { $fs.Dispose() }
     } finally { $md5.Dispose() }
 }
-
-function Select-VoiceNodeBuildProfile {
-    param([Parameter(Mandatory)][string]$VoiceNodePath)
-
-    if (-not (Test-Path $VoiceNodePath)) { return $null }
-    $info = Get-Item $VoiceNodePath -ErrorAction SilentlyContinue
-    if (-not $info) { return $null }
-
-    $size = [int64]$info.Length
-    $md5 = Get-FileMd5Hex -Path $VoiceNodePath
-    $Script:Config.VoiceNodeSize = $size
-    $Script:Config.VoiceNodeMd5 = $md5
-
-    $match = $Script:VoiceNodeBuildProfiles | Where-Object { $_.Md5 -eq $md5 } | Select-Object -First 1
-    if ($match) { return $match }
-
-    # Unknown build: keep whatever offsets are currently in $Script:Config.Offsets
-    # (this supports advanced users pasting updated offsets into the script),
-    # but warn clearly that the build isn't recognized.
-    return $null
-}
-
-function Apply-VoiceNodeBuildProfile {
-    param([Parameter(Mandatory)][hashtable]$Profile)
-    if (-not $Profile.Offsets) { return }
-    $Script:Config.Offsets = $Profile.Offsets
-    $Script:Config.VoiceNodeBuildName = $Profile.Name
-    Write-Log "Voice node build detected: $($Profile.Name) (MD5=$($Profile.Md5), Size=$($Profile.Size))" -Level Success
-}
-
-# endregion Voice Node Build Profiles
+# endregion Voice Node Helpers
 
 # region Logging
 
@@ -274,7 +202,8 @@ function Check-ForUpdate {
         }
         $tempFile = Join-Path $env:TEMP "DiscordVoicePatcher_Update_$(Get-Random).ps1"
         try {
-            Invoke-WebRequest -Uri $Script:UPDATE_URL -OutFile $tempFile -UseBasicParsing -TimeoutSec 15 | Out-Null
+            $updateUri = "$($Script:UPDATE_URL_BASE)?nocache=$(Get-Random)"
+            Invoke-WebRequest -Uri $updateUri -OutFile $tempFile -UseBasicParsing -TimeoutSec 15 | Out-Null
         } catch {
             Write-Log "Could not check for updates: $($_.Exception.Message)" -Level Warning
             return @{ UpdateAvailable = $false; Reason = "NetworkError"; Error = $_.Exception.Message }
@@ -1500,7 +1429,6 @@ function Get-UniqueClientsByAppPath {
 }
 
 function Get-PreparedVoiceBackupPath {
-    Write-Log "Downloading voice backup files from GitHub..." -Level Info
     $voiceBackupPath = Join-Path $Script:Config.TempDir "VoiceBackup"
     EnsureDir $voiceBackupPath
     if (-not (Download-VoiceBackupFiles $voiceBackupPath)) {
@@ -1515,15 +1443,38 @@ function Get-PreparedVoiceBackupPath {
     }
 
     try {
-        $profile = Select-VoiceNodeBuildProfile -VoiceNodePath $voiceNode
-        if ($profile) {
-            Apply-VoiceNodeBuildProfile -Profile $profile
-        } else {
-            Write-Log "Unknown voice node build (MD5=$($Script:Config.VoiceNodeMd5), Size=$($Script:Config.VoiceNodeSize)). Using offsets currently configured in script." -Level Warning
-            Write-Log "If patching fails with 'Binary validation failed', update/add an offsets profile for this build." -Level Warning
+        $nodeInfo = Get-Item $voiceNode -ErrorAction Stop
+        $nodeSize = [int64]$nodeInfo.Length
+        $nodeMd5 = Get-FileMd5Hex -Path $voiceNode
+
+        Write-Log ("Voice node downloaded: {0} MB | MD5={1}" -f ([Math]::Round($nodeSize / 1MB, 2)), $nodeMd5) -Level Info
+
+        $meta = $Script:Config.OffsetsMeta
+        if ($meta) {
+            if ($meta.Build) { Write-Log "Offsets build: $($meta.Build)" -Level Info }
+            if ($meta.MD5) {
+                $expected = ($meta.MD5.ToString()).ToLowerInvariant()
+                if ($nodeMd5 -ne $expected) {
+                    Write-Log "ERROR: Offsets do not match the downloaded discord_voice.node build." -Level Error
+                    Write-Log "  Downloaded node MD5: $nodeMd5" -Level Error
+                    Write-Log "  OffsetsMeta MD5:     $expected" -Level Error
+                    Write-Log "Paste the new offsets (and MD5) from your offset finder into the '# region Offsets (PASTE HERE)' block." -Level Error
+                    return $null
+                }
+            } else {
+                Write-Log "OffsetsMeta.MD5 is not set - skipping voice node hash check." -Level Warning
+            }
+            if ($meta.Size) {
+                try {
+                    $expectedSize = [int64]$meta.Size
+                    if ($expectedSize -ne $nodeSize) {
+                        Write-Log "Warning: OffsetsMeta.Size ($expectedSize) does not match downloaded node size ($nodeSize)" -Level Warning
+                    }
+                } catch { }
+            }
         }
     } catch {
-        Write-Log "Could not determine voice node build: $($_.Exception.Message)" -Level Warning
+        Write-Log "Could not verify downloaded voice node against offsets: $($_.Exception.Message)" -Level Warning
     }
 
     return $voiceBackupPath
