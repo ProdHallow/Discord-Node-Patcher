@@ -818,6 +818,8 @@ typedef unsigned short     uint16_t;
 typedef unsigned int       uint32_t;
 typedef unsigned long long uint64_t;
 
+#include <xmmintrin.h>
+
 extern "C" void __cdecl hp_cutoff(const float* in, int cutoff_Hz, float* out, int* hp_mem, int len, int channels, int Fs, int arch)
 {
     int* st = (hp_mem - 3553);
@@ -826,15 +828,14 @@ extern "C" void __cdecl hp_cutoff(const float* in, int cutoff_Hz, float* out, in
     *(int*)((char*)st + 164) = -1;
     *(int*)((char*)st + 184) = 0;
 
-    // Unity loudness across mono/stereo: when channels==2, normalize each channel by 1/sqrt(2).
-    // This prevents a +3dB increase when mono content is duplicated to stereo.
+    // Unity loudness across mono/stereo: scale by ~1/sqrt(channels).
+    // Implemented via SSE rsqrt on runtime channels to keep injected code self-contained
+    // (no float literal constant pool / RIP-relative loads).
     float gain = (float)GAIN_MULTIPLIER;
-    if (channels == 2) {
-        // 0x3F3504F3 is ~0.70710677f (1/sqrt(2)); encoded as immediate bits
-        // to keep injected code self-contained (no external constant reference).
-        union { uint32_t u; float f; } norm;
-        norm.u = 0x3F3504F3u;
-        gain *= norm.f;
+    if (channels > 0) {
+        __m128 v = _mm_cvtsi32_ss(_mm_setzero_ps(), channels);
+        v = _mm_rsqrt_ss(v);
+        gain *= _mm_cvtss_f32(v);
     }
     for (unsigned long i = 0; i < channels * len; i++) out[i] = in[i] * gain;
 }
@@ -848,10 +849,10 @@ extern "C" void __cdecl dc_reject(const float* in, float* out, int* hp_mem, int 
     *(int*)((char*)st + 184) = 0;
 
     float gain = (float)GAIN_MULTIPLIER;
-    if (channels == 2) {
-        union { uint32_t u; float f; } norm;
-        norm.u = 0x3F3504F3u;
-        gain *= norm.f;
+    if (channels > 0) {
+        __m128 v = _mm_cvtsi32_ss(_mm_setzero_ps(), channels);
+        v = _mm_rsqrt_ss(v);
+        gain *= _mm_cvtss_f32(v);
     }
     for (int i = 0; i < channels * len; i++) out[i] = in[i] * gain;
 }
