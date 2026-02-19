@@ -804,10 +804,10 @@ function Cleanup-TempFiles {
 # region Source Code Generation
 
 function Get-AmplifierSourceCode {
-    $multiplier = $Script:Config.AudioGainMultiplier - 2
-    Write-Log "Generating amplifier: GUI=$($Script:Config.AudioGainMultiplier)x, Multiplier=$multiplier" -Level Info
+    $gain = $Script:Config.AudioGainMultiplier
+    Write-Log "Generating amplifier: Gain=$gain x (unity at 1x, stereo normalized)" -Level Info
     return @"
-#define Multiplier $multiplier
+#define GAIN_MULTIPLIER $gain
 
 typedef signed char        int8_t;
 typedef short              int16_t;
@@ -825,7 +825,12 @@ extern "C" void __cdecl hp_cutoff(const float* in, int cutoff_Hz, float* out, in
     *(int*)((char*)st + 160) = -1;
     *(int*)((char*)st + 164) = -1;
     *(int*)((char*)st + 184) = 0;
-    for (unsigned long i = 0; i < channels * len; i++) out[i] = in[i] * (channels + Multiplier);
+
+    // Unity loudness across mono/stereo: when channels==2, normalize each channel by 1/sqrt(2).
+    // This prevents a +3dB increase when mono content is duplicated to stereo.
+    float gain = (float)GAIN_MULTIPLIER;
+    if (channels == 2) gain *= 0.70710678f;
+    for (unsigned long i = 0; i < channels * len; i++) out[i] = in[i] * gain;
 }
 
 extern "C" void __cdecl dc_reject(const float* in, float* out, int* hp_mem, int len, int channels, int Fs)
@@ -835,7 +840,10 @@ extern "C" void __cdecl dc_reject(const float* in, float* out, int* hp_mem, int 
     *(int*)((char*)st + 160) = -1;
     *(int*)((char*)st + 164) = -1;
     *(int*)((char*)st + 184) = 0;
-    for (int i = 0; i < channels * len; i++) out[i] = in[i] * (channels + Multiplier);
+
+    float gain = (float)GAIN_MULTIPLIER;
+    if (channels == 2) gain *= 0.70710678f;
+    for (int i = 0; i < channels * len; i++) out[i] = in[i] * gain;
 }
 "@
 }
@@ -1220,14 +1228,16 @@ function New-SourceFiles {
         [System.IO.File]::WriteAllText($patcher, $patcherCode, [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllText($amp, $ampCode, [System.Text.Encoding]::ASCII)
         $ampContent = Get-Content $amp -Raw
-        if ($ampContent -match '#define Multiplier (-?\d+)') {
-            $actualMultiplier = $Matches[1]
-            $expectedMultiplier = $Script:Config.AudioGainMultiplier - 2
-            Write-Log "VERIFY: #define Multiplier = $actualMultiplier (expected: $expectedMultiplier)" -Level Info
-            if ([int]$actualMultiplier -ne $expectedMultiplier) {
-                Write-Log "WARNING: Multiplier mismatch! File has $actualMultiplier but expected $expectedMultiplier" -Level Warning
+        if ($ampContent -match '#define GAIN_MULTIPLIER (\d+)') {
+            $actualGain = $Matches[1]
+            $expectedGain = $Script:Config.AudioGainMultiplier
+            Write-Log "VERIFY: #define GAIN_MULTIPLIER = $actualGain (expected: $expectedGain)" -Level Info
+            if ([int]$actualGain -ne $expectedGain) {
+                Write-Log "WARNING: Gain mismatch! File has $actualGain but expected $expectedGain" -Level Warning
             }
-        } else { Write-Log "WARNING: Could not find #define Multiplier in generated code!" -Level Warning }
+        } else {
+            Write-Log "WARNING: Could not find #define GAIN_MULTIPLIER in generated code!" -Level Warning
+        }
         if (-not (Test-Path $patcher)) { throw "patcher.cpp was not created at: $patcher" }
         if (-not (Test-Path $amp)) { throw "amplifier.cpp was not created at: $amp" }
         $patcherSize = (Get-Item $patcher).Length

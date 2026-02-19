@@ -51,6 +51,8 @@ Paste into PowerShell and press Enter.
 
 Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, Equicord, BetterVencord, Lightcord**
 
+> 🎚️ Gain note: `1x` now uses stereo normalization, so duplicated mono-to-stereo audio does not add the common +3 dB jump.
+
 ---
 
 ## 🆕 What's New in v5.0
@@ -110,8 +112,10 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 | Problem | Solution |
 |---------|----------|
 | "No compiler found" | Install Visual Studio with C++ workload |
+| "I have VS Code but compile still fails" | VS Code is an editor, not a compiler. Install Visual Studio (or Visual Studio Build Tools) with the **Desktop development with C++** workload and Windows SDK |
 | "Discord not found" | Make sure Discord is running |
 | "Access denied" | Script auto-elevates, just accept the prompt |
+| "1x still sounds boosted" | Re-run the latest patcher. `1x` now applies stereo normalization for neutral baseline loudness |
 | Audio distorted | Lower gain to 1-2x |
 | No effect after patch | Restart Discord completely |
 | "Binary validation failed" | Your discord_voice.node doesn't match the Feb 2026 build — wait for a patcher update or restore from backup |
