@@ -107,6 +107,7 @@ function Write-Banner {
     Write-Host "`n===== Discord Voice Quality Patcher v$Script:SCRIPT_VERSION =====" -ForegroundColor Cyan
     Write-Host "      48kHz | 400kbps | Stereo | Gain Config" -ForegroundColor Cyan
     Write-Host "         Multi-Client Detection Enabled" -ForegroundColor Cyan
+    Write-Host " Requires C++ build tools (VS workload or MinGW/Clang)" -ForegroundColor Yellow
     Write-Host "===============================================`n" -ForegroundColor Cyan
 }
 
@@ -704,23 +705,87 @@ function Initialize-Environment {
     "=== Discord Voice Patcher Log ===`nStarted: $(Get-Date)`nGain: $($Script:Config.AudioGainMultiplier)x`n" | Out-File $Script:Config.LogFile -Force -ErrorAction SilentlyContinue
 }
 
+function Write-CompilerSetupHelp {
+    param(
+        [ValidateSet('MissingCompiler','VisualStudioMissingCpp','MsvcBuildFailure','GppBuildFailure','ClangBuildFailure')]
+        [string]$Reason = 'MissingCompiler'
+    )
+
+    Write-Host ""
+    Write-Host "=== C++ Build Tools Required ===" -ForegroundColor Yellow
+    Write-Log "This patcher compiles native C++ code at runtime." -Level Warning
+
+    if (Get-Command "code" -ErrorAction SilentlyContinue) {
+        Write-Log "VS Code is an editor only. It does NOT include a C++ compiler." -Level Warning
+    }
+
+    switch ($Reason) {
+        'VisualStudioMissingCpp' {
+            Write-Log "Visual Studio was found, but required C++ components are missing." -Level Error
+            Write-Log "Open Visual Studio Installer -> Modify -> Workloads -> Desktop development with C++" -Level Warning
+            Write-Log "Install MSVC v143 x64/x86 build tools and Windows 10/11 SDK" -Level Warning
+        }
+        'MsvcBuildFailure' {
+            Write-Log "MSVC build failed. This is commonly caused by missing Visual Studio C++ components." -Level Error
+            Write-Log "Open Visual Studio Installer -> Modify -> Workloads -> Desktop development with C++" -Level Warning
+            Write-Log "Install MSVC v143 x64/x86 build tools and Windows 10/11 SDK" -Level Warning
+        }
+        'GppBuildFailure' {
+            Write-Log "MinGW g++ build failed. Verify g++ is installed and available in PATH." -Level Error
+        }
+        'ClangBuildFailure' {
+            Write-Log "Clang build failed. Verify clang++ is installed and available in PATH." -Level Error
+        }
+        default {
+            Write-Log "No C++ compiler was found." -Level Error
+            Write-Log "Install ONE of: Visual Studio (Desktop development with C++), MinGW-w64, or LLVM/Clang." -Level Warning
+            Write-Log "Visual Studio Code alone is not enough." -Level Warning
+        }
+    }
+
+    Write-Log "After installing tools, rerun the patcher." -Level Info
+    Write-Host ""
+}
+
 function Find-Compiler {
     Write-Log "Searching for C++ compiler..." -Level Info
     $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    $vsDetectedPath = $null
+    $vsWithCppPath = $null
+    $vcvarsMissing = $false
+
     if (Test-Path $vsWhere) {
         try {
-            $vsPath = & $vsWhere -latest -property installationPath 2>$null
-            if ($vsPath) {
-                $vcvars = "$vsPath\VC\Auxiliary\Build\vcvars64.bat"
-                if (Test-Path $vcvars) { Write-Log "Found Visual Studio" -Level Success; return @{ Type = 'MSVC'; Path = $vcvars } }
+            $vsWithCppPath = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+            if ($vsWithCppPath) {
+                $vcvars = Join-Path $vsWithCppPath "VC\Auxiliary\Build\vcvars64.bat"
+                if (Test-Path $vcvars) {
+                    Write-Log "Found Visual Studio C++ Build Tools" -Level Success
+                    return @{ Type = 'MSVC'; Path = $vcvars }
+                }
+                $vcvarsMissing = $true
+                Write-Log "Visual Studio C++ workload detected but vcvars64.bat was not found: $vcvars" -Level Warning
             }
-        } catch { }
+
+            $vsDetectedPath = & $vsWhere -latest -products * -property installationPath 2>$null
+        } catch {
+            Write-Log "Could not query Visual Studio installer: $($_.Exception.Message)" -Level Warning
+        }
     }
+
     $gpp = Get-Command "g++" -ErrorAction SilentlyContinue
     if ($gpp) { Write-Log "Found MinGW g++" -Level Success; return @{ Type = 'MinGW'; Path = $gpp.Source } }
+
     $clang = Get-Command "clang++" -ErrorAction SilentlyContinue
     if ($clang) { Write-Log "Found Clang" -Level Success; return @{ Type = 'Clang'; Path = $clang.Source } }
-    Write-Log "No C++ compiler found. Install Visual Studio, MinGW, or Clang." -Level Error
+
+    if ($vsDetectedPath -and (-not $vsWithCppPath -or $vcvarsMissing)) {
+        Write-Log "Visual Studio detected at: $vsDetectedPath" -Level Warning
+        Write-CompilerSetupHelp -Reason VisualStudioMissingCpp
+        return $null
+    }
+
+    Write-CompilerSetupHelp -Reason MissingCompiler
     return $null
 }
 
@@ -1178,6 +1243,50 @@ function New-SourceFiles {
 
 # region Compilation
 
+function Show-CompilationFailureGuidance {
+    param([string]$CompilerType, [string]$LogPath)
+
+    $logText = ""
+    if ($LogPath -and (Test-Path $LogPath)) {
+        try { $logText = Get-Content $LogPath -Raw -ErrorAction SilentlyContinue } catch { }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($logText)) {
+        switch ($CompilerType) {
+            'MSVC' { Write-CompilerSetupHelp -Reason MsvcBuildFailure; return }
+            'MinGW' { Write-CompilerSetupHelp -Reason GppBuildFailure; return }
+            'Clang' { Write-CompilerSetupHelp -Reason ClangBuildFailure; return }
+        }
+        return
+    }
+
+    switch ($CompilerType) {
+        'MSVC' {
+            if (
+                $logText -match '(?i)Failed to initialize Visual Studio environment' -or
+                $logText -match '(?i)cl\.exe.*(not recognized|not found)' -or
+                $logText -match '(?i)fatal error C1083' -or
+                $logText -match '(?i)cannot open include file'
+            ) {
+                Write-CompilerSetupHelp -Reason MsvcBuildFailure
+                return
+            }
+        }
+        'MinGW' {
+            if ($logText -match '(?i)g\+\+.*(not recognized|not found)' -or $logText -match '(?i)g\+\+: command not found') {
+                Write-CompilerSetupHelp -Reason GppBuildFailure
+                return
+            }
+        }
+        'Clang' {
+            if ($logText -match '(?i)clang\+\+.*(not recognized|not found)' -or $logText -match '(?i)clang\+\+: command not found') {
+                Write-CompilerSetupHelp -Reason ClangBuildFailure
+                return
+            }
+        }
+    }
+}
+
 function Invoke-Compilation {
     param([hashtable]$Compiler, [string[]]$SourceFiles)
     Write-Log "Compiling with $($Compiler.Type)..." -Level Info
@@ -1228,6 +1337,7 @@ function Invoke-Compilation {
     } catch {
         Write-Log "Compilation failed: $_" -Level Error
         if (Test-Path $log) { Write-Host "=== Build Log ===" -ForegroundColor Yellow; Get-Content $log | Write-Host }
+        Show-CompilationFailureGuidance -CompilerType $Compiler.Type -LogPath $log
         return $null
     }
 }
