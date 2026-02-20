@@ -180,7 +180,9 @@ function Get-UserConfig {
             if ([string]::IsNullOrWhiteSpace($content)) { throw "Empty" }
             $cfg = $content | ConvertFrom-Json
             if (-not $cfg.PSObject.Properties['LastGainMultiplier']) { throw "Invalid" }
-            if ($cfg.LastGainMultiplier -lt 1 -or $cfg.LastGainMultiplier -gt 10) { throw "OutOfRange" }
+            if ($null -eq $cfg.LastGainMultiplier -or ($cfg.LastGainMultiplier -is [string] -and [string]::IsNullOrWhiteSpace($cfg.LastGainMultiplier))) { throw "Invalid" }
+            $num = $cfg.LastGainMultiplier
+            if ($num -lt 1 -or $num -gt 10) { throw "OutOfRange" }
             return $cfg
         }
     } catch { Remove-Item $Script:Config.ConfigFile -Force -ErrorAction SilentlyContinue }
@@ -599,6 +601,7 @@ function Restore-FromBackup {
         Write-Log "Closing Discord processes..." -Level Info
         Stop-AllDiscordProcesses | Out-Null
         Start-Sleep -Seconds 2
+        EnsureDir (Split-Path $targetPath -Parent)
         Copy-Item -Path $BackupPath -Destination $targetPath -Force
         Write-Log "Restore complete! Restart Discord." -Level Success
         return $true
