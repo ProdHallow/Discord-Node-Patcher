@@ -7,6 +7,7 @@
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?style=flat-square)
 
 ---
+>⚠️⚠️⚠️ADDED EXPERIMENTAL DEBUG MODE⚠️⚠️⚠️
 ## ⬇️ Download & Run
 
 ### Option 1: One-Click BAT (Recommended)
