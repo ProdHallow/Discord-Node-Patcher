@@ -56,6 +56,49 @@ $Script:Offsets = @{
 
 # endregion Offsets
 
+# region Patch Definitions (Debug Mode)
+
+$Script:PatchGroups = [ordered]@{
+    STEREO = [ordered]@{
+        EmulateStereoSuccess1 = @{ Name = "EmulateStereoSuccess1 (channels=2)"; Hex = "02" }
+        EmulateStereoSuccess2 = @{ Name = "EmulateStereoSuccess2 (jne->jmp)"; Hex = "EB" }
+        CreateAudioFrameStereo = @{ Name = "CreateAudioFrameStereo"; Hex = "49 89 C5 90" }
+        AudioEncoderOpusConfigSetChannels = @{ Name = "AudioEncoderConfigSetChannels (ch=2)"; Hex = "02" }
+        MonoDownmixer = @{ Name = "MonoDownmixer (NOP sled + JMP)"; Hex = "90 90 90 90 90 90 90 90 90 90 90 90 E9" }
+    }
+    BITRATE = [ordered]@{
+        EmulateBitrateModified = @{ Name = "EmulateBitrateModified (400kbps)"; Hex = "80 1A 06" }
+        SetsBitrateBitrateValue = @{ Name = "SetsBitrateBitrateValue"; Hex = "80 1A 06 00 00" }
+        SetsBitrateBitwiseOr = @{ Name = "SetsBitrateBitwiseOr (NOP)"; Hex = "90 90 90" }
+        DuplicateEmulateBitrateModified = @{ Name = "DuplicateEmulateBitrate"; Hex = "80 1A 06" }
+    }
+    SAMPLERATE = [ordered]@{
+        Emulate48Khz = @{ Name = "Emulate48Khz (NOP cmovb)"; Hex = "90 90 90" }
+    }
+    FILTER = [ordered]@{
+        HighPassFilter = @{ Name = "HighPassFilter (RET stub)"; Hex = "mov rax, imm64; ret" }
+        HighpassCutoffFilter = @{ Name = "HighpassCutoffFilter (inject hp_cutoff)"; Hex = "shellcode" }
+        DcReject = @{ Name = "DcReject (inject dc_reject)"; Hex = "shellcode" }
+        DownmixFunc = @{ Name = "DownmixFunc (RET)"; Hex = "C3" }
+        AudioEncoderOpusConfigIsOk = @{ Name = "AudioEncoderConfigIsOk (RET true)"; Hex = "48 C7 C0 01 ... C3" }
+        ThrowError = @{ Name = "ThrowError (RET)"; Hex = "C3" }
+    }
+    ENCODER = [ordered]@{
+        EncoderConfigInit1 = @{ Name = "EncoderConfigInit1 (400kbps)"; Hex = "80 1A 06 00" }
+        EncoderConfigInit2 = @{ Name = "EncoderConfigInit2 (400kbps)"; Hex = "80 1A 06 00" }
+    }
+}
+
+$Script:AllPatchKeys = [System.Collections.Generic.List[string]]::new()
+foreach ($grp in $Script:PatchGroups.Values) {
+    foreach ($k in $grp.Keys) { $Script:AllPatchKeys.Add($k) }
+}
+
+$Script:SelectedPatches = @{}
+foreach ($k in $Script:AllPatchKeys) { $Script:SelectedPatches[$k] = $true }
+
+# endregion Patch Definitions
+
 # region Auto-Elevation
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -643,11 +686,17 @@ function Show-ConfigurationGUI {
     foreach ($ic in $installedClients) { $Script:GuiInstalledIndices[$ic.Index] = $ic }
     $Script:GuiInstalledClients = $installedClients
 
+    $normalHeight = 570
+    $debugPanelHeight = 520
+    $debugExpandedHeight = $normalHeight + $debugPanelHeight
+    $formWidth = 520
+
     $form = New-Object Windows.Forms.Form -Property @{
-        Text = "Discord Voice Patcher v$Script:SCRIPT_VERSION"; ClientSize = "520,570"; StartPosition = "CenterScreen"
+        Text = "Discord Voice Patcher v$Script:SCRIPT_VERSION"; StartPosition = "CenterScreen"
         FormBorderStyle = "FixedDialog"; MaximizeBox = $false; MinimizeBox = $false
         BackColor = [Drawing.Color]::FromArgb(44,47,51); ForeColor = [Drawing.Color]::White
     }
+    $form.ClientSize = New-Object Drawing.Size($formWidth, $normalHeight)
 
     $newLabel = { param($x, $y, $w, $h, $text, $font, $color)
         $l = New-Object Windows.Forms.Label -Property @{ Location = "$x,$y"; Size = "$w,$h"; Text = $text }
@@ -725,9 +774,159 @@ function Show-ConfigurationGUI {
     $statusLabel = & $newLabel 20 430 480 25 "" (New-Object Drawing.Font("Segoe UI", 9)) ([Drawing.Color]::FromArgb(237,66,69))
     if (-not $Script:GuiInstalledIndices.ContainsKey($clientCombo.SelectedIndex)) { $statusLabel.Text = "This client is not installed" }
 
+    $patchCheckboxes = @{}
+    $groupCheckboxes = @{}
+    $totalPatches = $Script:AllPatchKeys.Count
+    $Script:SuppressGroupToggle = $false
+
+    $debugBadge = New-Object Windows.Forms.Label -Property @{
+        Location = "20,515"; Size = "90,24"; Text = "DEBUG MODE"
+        Font = New-Object Drawing.Font("Segoe UI", 8, [Drawing.FontStyle]::Bold)
+        ForeColor = [Drawing.Color]::FromArgb(44,47,51)
+        BackColor = [Drawing.Color]::FromArgb(254,231,92)
+        TextAlign = [Drawing.ContentAlignment]::MiddleCenter
+        Visible = $false
+    }
+    $form.Controls.Add($debugBadge)
+
+    $debugPanel = New-Object Windows.Forms.Panel -Property @{
+        Location = New-Object Drawing.Point(0, 545)
+        Size = New-Object Drawing.Size($formWidth, $debugPanelHeight)
+        AutoScroll = $true; Visible = $false
+        BackColor = [Drawing.Color]::FromArgb(47,49,54)
+    }
+    $form.Controls.Add($debugPanel)
+
+    $counterLabel = New-Object Windows.Forms.Label -Property @{
+        Location = "340,8"; Size = "150,20"; TextAlign = [Drawing.ContentAlignment]::MiddleRight
+        Font = New-Object Drawing.Font("Segoe UI", 9); ForeColor = [Drawing.Color]::FromArgb(185,187,190)
+    }
+    $debugPanel.Controls.Add($counterLabel)
+
+    $updateCounter = {
+        $enabled = @($patchCheckboxes.Values | Where-Object { $_.Checked }).Count
+        $counterLabel.Text = "$enabled / $totalPatches patches enabled"
+    }
+
+    $selectAllBtn = New-Object Windows.Forms.Button -Property @{
+        Location = "20,5"; Size = "85,25"; Text = "Select All"; FlatStyle = "Flat"
+        BackColor = [Drawing.Color]::FromArgb(54,57,63); ForeColor = [Drawing.Color]::White
+        Font = New-Object Drawing.Font("Segoe UI", 8); Cursor = [Windows.Forms.Cursors]::Hand
+    }
+    $selectAllBtn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(64,68,75)
+    $selectAllBtn.Add_Click({
+        $Script:SuppressGroupToggle = $true
+        foreach ($cb in $patchCheckboxes.Values) { $cb.Checked = $true }
+        foreach ($gcb in $groupCheckboxes.Values) { $gcb.Checked = $true }
+        $Script:SuppressGroupToggle = $false
+        & $updateCounter
+    })
+    $debugPanel.Controls.Add($selectAllBtn)
+
+    $deselectAllBtn = New-Object Windows.Forms.Button -Property @{
+        Location = "112,5"; Size = "95,25"; Text = "Deselect All"; FlatStyle = "Flat"
+        BackColor = [Drawing.Color]::FromArgb(54,57,63); ForeColor = [Drawing.Color]::White
+        Font = New-Object Drawing.Font("Segoe UI", 8); Cursor = [Windows.Forms.Cursors]::Hand
+    }
+    $deselectAllBtn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(64,68,75)
+    $deselectAllBtn.Add_Click({
+        $Script:SuppressGroupToggle = $true
+        foreach ($cb in $patchCheckboxes.Values) { $cb.Checked = $false }
+        foreach ($gcb in $groupCheckboxes.Values) { $gcb.Checked = $false }
+        $Script:SuppressGroupToggle = $false
+        & $updateCounter
+    })
+    $debugPanel.Controls.Add($deselectAllBtn)
+
+    $yPos = 40
+    $groupColors = @{
+        STEREO     = [Drawing.Color]::FromArgb(254,231,92)
+        BITRATE    = [Drawing.Color]::FromArgb(254,231,92)
+        SAMPLERATE = [Drawing.Color]::FromArgb(87,242,135)
+        FILTER     = [Drawing.Color]::FromArgb(254,231,92)
+        ENCODER    = [Drawing.Color]::FromArgb(254,231,92)
+    }
+
+    foreach ($groupName in $Script:PatchGroups.Keys) {
+        $patches = $Script:PatchGroups[$groupName]
+        $groupColor = $groupColors[$groupName]
+        if (-not $groupColor) { $groupColor = [Drawing.Color]::FromArgb(254,231,92) }
+
+        $grpChk = New-Object Windows.Forms.CheckBox -Property @{
+            Location = New-Object Drawing.Point(20, $yPos)
+            Size = New-Object Drawing.Size(460, 22)
+            Text = $groupName; Checked = $true
+            ForeColor = $groupColor
+            Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+        }
+        $grpChk.Add_CheckedChanged({
+            param($sender, $e)
+            if ($Script:SuppressGroupToggle) { return }
+            $Script:SuppressGroupToggle = $true
+            $gn = $sender.Text
+            foreach ($pk in $Script:PatchGroups[$gn].Keys) {
+                if ($patchCheckboxes.ContainsKey($pk)) {
+                    $patchCheckboxes[$pk].Checked = $sender.Checked
+                }
+            }
+            $Script:SuppressGroupToggle = $false
+            & $updateCounter
+        }.GetNewClosure())
+        $groupCheckboxes[$groupName] = $grpChk
+        $debugPanel.Controls.Add($grpChk)
+        $yPos += 24
+
+        foreach ($patchKey in $patches.Keys) {
+            $patchInfo = $patches[$patchKey]
+            $offset = $Script:Config.Offsets[$patchKey]
+            $offsetHex = if ($offset) { "0x{0:X}" -f $offset } else { "???" }
+
+            $pChk = New-Object Windows.Forms.CheckBox -Property @{
+                Location = New-Object Drawing.Point(45, $yPos)
+                Size = New-Object Drawing.Size(440, 20)
+                Text = $patchInfo.Name; Checked = $true
+                ForeColor = [Drawing.Color]::White
+                Font = New-Object Drawing.Font("Segoe UI", 9)
+            }
+            $pChk.Add_CheckedChanged({
+                param($sender, $e)
+                if ($Script:SuppressGroupToggle) { return }
+                $Script:SuppressGroupToggle = $true
+                & $updateCounter
+                foreach ($gn in $Script:PatchGroups.Keys) {
+                    $allChecked = $true
+                    foreach ($pk in $Script:PatchGroups[$gn].Keys) {
+                        if ($patchCheckboxes.ContainsKey($pk) -and -not $patchCheckboxes[$pk].Checked) {
+                            $allChecked = $false; break
+                        }
+                    }
+                    if ($groupCheckboxes.ContainsKey($gn)) {
+                        $groupCheckboxes[$gn].Checked = $allChecked
+                    }
+                }
+                $Script:SuppressGroupToggle = $false
+            }.GetNewClosure())
+            $patchCheckboxes[$patchKey] = $pChk
+            $debugPanel.Controls.Add($pChk)
+
+            $infoLabel = New-Object Windows.Forms.Label -Property @{
+                Location = New-Object Drawing.Point(65, ($yPos + 20))
+                Size = New-Object Drawing.Size(420, 16)
+                Text = "$offsetHex  $([char]0x2192)  $($patchInfo.Hex)"
+                Font = New-Object Drawing.Font("Consolas", 7.5)
+                ForeColor = [Drawing.Color]::FromArgb(120,124,128)
+            }
+            $debugPanel.Controls.Add($infoLabel)
+            $yPos += 40
+        }
+        $yPos += 8
+    }
+
+    & $updateCounter
+
     $btnStyle = { param($x, $text, $bgR, $bgG, $bgB, $bold, $action)
         $b = New-Object Windows.Forms.Button -Property @{
-            Location = "$x,470"; Size = "115,40"; Text = $text; FlatStyle = "Flat"
+            Location = "$x,470"; Size = "90,40"; Text = $text; FlatStyle = "Flat"
             BackColor = [Drawing.Color]::FromArgb($bgR, $bgG, $bgB); ForeColor = [Drawing.Color]::White
             Font = New-Object Drawing.Font("Segoe UI", 10, $(if ($bold) { [Drawing.FontStyle]::Bold } else { [Drawing.FontStyle]::Regular }))
             Cursor = [Windows.Forms.Cursors]::Hand
@@ -737,20 +936,49 @@ function Show-ConfigurationGUI {
 
     & $btnStyle 20 "Restore" 79 84 92 $false { $form.Tag = @{ Action = 'Restore' }; $form.DialogResult = "Abort"; $form.Close() }
 
-    & $btnStyle 140 "Patch" 88 101 242 $true {
+    & $btnStyle 115 "Patch" 88 101 242 $true {
         $selectedIdx = $clientCombo.SelectedIndex
         if (-not $Script:GuiInstalledIndices.ContainsKey($selectedIdx)) { $statusLabel.Text = "Selected client is not installed!"; return }
-        $form.Tag = @{ Action = 'Patch'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; ClientIndex = $selectedIdx }
+        $patchSel = @{}
+        $isDbg = $debugPanel.Visible
+        foreach ($pk in $patchCheckboxes.Keys) {
+            $patchSel[$pk] = if ($isDbg) { $patchCheckboxes[$pk].Checked } else { $true }
+        }
+        $form.Tag = @{ Action = 'Patch'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; ClientIndex = $selectedIdx; DebugMode = $isDbg; SelectedPatches = $patchSel }
         $form.DialogResult = "OK"; $form.Close()
     }
 
-    & $btnStyle 260 "Patch All" 87 158 87 $true {
+    & $btnStyle 210 "Patch All" 87 158 87 $true {
         if ($Script:GuiInstalledClients.Count -eq 0) { $statusLabel.Text = "No Discord clients detected to patch!"; return }
-        $form.Tag = @{ Action = 'PatchAll'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked }
+        $patchSel = @{}
+        $isDbg = $debugPanel.Visible
+        foreach ($pk in $patchCheckboxes.Keys) {
+            $patchSel[$pk] = if ($isDbg) { $patchCheckboxes[$pk].Checked } else { $true }
+        }
+        $form.Tag = @{ Action = 'PatchAll'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; DebugMode = $isDbg; SelectedPatches = $patchSel }
         $form.DialogResult = "OK"; $form.Close()
     }
 
-    $cancelBtn = & $btnStyle 385 "Cancel" 79 84 92 $false { $form.DialogResult = "Cancel"; $form.Close() }
+    $debugBtn = New-Object Windows.Forms.Button -Property @{
+        Location = "305,470"; Size = "90,40"; Text = "Debug"; FlatStyle = "Flat"
+        BackColor = [Drawing.Color]::FromArgb(79,84,92); ForeColor = [Drawing.Color]::White
+        Font = New-Object Drawing.Font("Segoe UI", 10)
+        Cursor = [Windows.Forms.Cursors]::Hand
+    }
+    $debugBtn.Add_Click({
+        if ($debugPanel.Visible) {
+            $debugPanel.Visible = $false
+            $debugBadge.Visible = $false
+            $form.ClientSize = New-Object Drawing.Size($formWidth, $normalHeight)
+        } else {
+            $debugPanel.Visible = $true
+            $debugBadge.Visible = $true
+            $form.ClientSize = New-Object Drawing.Size($formWidth, $debugExpandedHeight)
+        }
+    }.GetNewClosure())
+    $form.Controls.Add($debugBtn)
+
+    $cancelBtn = & $btnStyle 400 "Cancel" 79 84 92 $false { $form.DialogResult = "Cancel"; $form.Close() }
 
     $clientCombo.Add_SelectedIndexChanged({
         $selectedIdx = $clientCombo.SelectedIndex
@@ -1061,6 +1289,14 @@ function Get-PatcherSourceCode {
     param([string]$ProcessName = "Discord.exe", [string]$ModuleName = "discord_voice.node")
     $offsets = $Script:Config.Offsets
     $c = $Script:Config
+    $sp = $Script:SelectedPatches
+
+    $patchDefines = ""
+    foreach ($k in $Script:AllPatchKeys) {
+        $val = if ($sp.ContainsKey($k) -and $sp[$k]) { 1 } else { 0 }
+        $patchDefines += "#define PATCH_$k $val`n"
+    }
+
     return @"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -1073,6 +1309,7 @@ function Get-PatcherSourceCode {
 #define BITRATE $($c.Bitrate)
 #define AUDIO_GAIN $($c.AudioGainMultiplier)
 
+$patchDefines
 extern "C" void dc_reject(const float*, float*, int*, int, int, int);
 extern "C" void hp_cutoff(const float*, int, float*, int*, int, int, int, int);
 
@@ -1147,10 +1384,8 @@ private:
     bool ApplyPatches(void* fileData, LONGLONG fileSize) {
         printf("\nApplying patches:\n");
 
-        // Validate file size - the Feb 2026 node is ~13.6 MB
-        // Allow a reasonable range for minor rebuilds
-        constexpr LONGLONG MIN_EXPECTED_SIZE = 12 * 1024 * 1024;  // 12 MB
-        constexpr LONGLONG MAX_EXPECTED_SIZE = 18 * 1024 * 1024;  // 18 MB
+        constexpr LONGLONG MIN_EXPECTED_SIZE = 12 * 1024 * 1024;
+        constexpr LONGLONG MAX_EXPECTED_SIZE = 18 * 1024 * 1024;
         if (fileSize < MIN_EXPECTED_SIZE || fileSize > MAX_EXPECTED_SIZE) {
             printf("ERROR: File size %.2f MB is outside expected range (12-18 MB)\n",
                    fileSize / (1024.0 * 1024.0));
@@ -1158,22 +1393,19 @@ private:
             return false;
         }
 
-        // Validate original bytes at 3 patch sites across different code sections
-        // to verify this is the expected build before writing anything
         auto CheckBytes = [&](uint32_t offset, const unsigned char* expected, size_t len) -> bool {
             uint32_t fileOffset = offset - Offsets::FILE_OFFSET_ADJUSTMENT;
             if ((LONGLONG)(fileOffset + len) > fileSize) return false;
             return memcmp((char*)fileData + fileOffset, expected, len) == 0;
         };
 
-        // Probe 3 sections: 0x53 (Emulate48Khz), 0x3A (ConfigIsOk), 0x8B (DownmixFunc)
-        const unsigned char orig_48khz[]    = {0x0F, 0x42, 0xC1};            // cmovb eax,ecx
-        const unsigned char orig_configok[] = {0x8B, 0x11, 0x31, 0xC0};      // mov edx,[rcx]; xor eax,eax
-        const unsigned char orig_downmix[]  = {0x41, 0x57, 0x41, 0x56};      // push r15; push r14
+        const unsigned char orig_48khz[]    = {0x0F, 0x42, 0xC1};
+        const unsigned char orig_configok[] = {0x8B, 0x11, 0x31, 0xC0};
+        const unsigned char orig_downmix[]  = {0x41, 0x57, 0x41, 0x56};
 
-        const unsigned char patched_48khz[]    = {0x90, 0x90, 0x90};         // nop nop nop
-        const unsigned char patched_configok[] = {0x48, 0xC7, 0xC0, 0x01};   // mov rax, 1
-        const unsigned char patched_downmix[]  = {0xC3};                     // ret
+        const unsigned char patched_48khz[]    = {0x90, 0x90, 0x90};
+        const unsigned char patched_configok[] = {0x48, 0xC7, 0xC0, 0x01};
+        const unsigned char patched_downmix[]  = {0xC3};
 
         bool o1 = CheckBytes(Offsets::Emulate48Khz, orig_48khz, 3);
         bool o2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, orig_configok, 4);
@@ -1215,83 +1447,192 @@ private:
             return true;
         };
 
-        printf("  [1/5] Enabling stereo audio...\n");
+        int patchCount = 0;
+        int skipCount = 0;
+
+#if PATCH_EmulateStereoSuccess1
+        printf("  [STEREO] EmulateStereoSuccess1 (channels=2)...\n");
         if (!PatchBytes(Offsets::EmulateStereoSuccess1, "\x02", 1)) return false;
+        patchCount++;
+#else
+        printf("  [STEREO] EmulateStereoSuccess1 - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_EmulateStereoSuccess2
+        printf("  [STEREO] EmulateStereoSuccess2 (jne->jmp)...\n");
         if (!PatchBytes(Offsets::EmulateStereoSuccess2, "\xEB", 1)) return false;
+        patchCount++;
+#else
+        printf("  [STEREO] EmulateStereoSuccess2 - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_CreateAudioFrameStereo
+        printf("  [STEREO] CreateAudioFrameStereo...\n");
         if (!PatchBytes(Offsets::CreateAudioFrameStereo, "\x49\x89\xC5\x90", 4)) return false;
+        patchCount++;
+#else
+        printf("  [STEREO] CreateAudioFrameStereo - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_AudioEncoderOpusConfigSetChannels
+        printf("  [STEREO] AudioEncoderConfigSetChannels (ch=2)...\n");
         if (!PatchBytes(Offsets::AudioEncoderOpusConfigSetChannels, "\x02", 1)) return false;
+        patchCount++;
+#else
+        printf("  [STEREO] AudioEncoderConfigSetChannels - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_MonoDownmixer
+        printf("  [STEREO] MonoDownmixer (NOP sled + JMP)...\n");
         if (!PatchBytes(Offsets::MonoDownmixer, "\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\xE9", 13)) return false;
-        printf("  [2/5] Setting bitrate to 400kbps...\n");
+        patchCount++;
+#else
+        printf("  [STEREO] MonoDownmixer - SKIPPED\n"); skipCount++;
+#endif
+
+#if PATCH_EmulateBitrateModified
+        printf("  [BITRATE] EmulateBitrateModified (400kbps)...\n");
         if (!PatchBytes(Offsets::EmulateBitrateModified, "\x80\x1A\x06", 3)) return false;
+        patchCount++;
+#else
+        printf("  [BITRATE] EmulateBitrateModified - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_SetsBitrateBitrateValue
+        printf("  [BITRATE] SetsBitrateBitrateValue...\n");
         if (!PatchBytes(Offsets::SetsBitrateBitrateValue, "\x80\x1A\x06\x00\x00", 5)) return false;
+        patchCount++;
+#else
+        printf("  [BITRATE] SetsBitrateBitrateValue - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_SetsBitrateBitwiseOr
+        printf("  [BITRATE] SetsBitrateBitwiseOr (NOP)...\n");
         if (!PatchBytes(Offsets::SetsBitrateBitwiseOr, "\x90\x90\x90", 3)) return false;
-        // Patch duplicate bitrate calculation path (parallel function the original patcher missed)
+        patchCount++;
+#else
+        printf("  [BITRATE] SetsBitrateBitwiseOr - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_DuplicateEmulateBitrateModified
+        printf("  [BITRATE] DuplicateEmulateBitrate...\n");
         if (!PatchBytes(Offsets::DuplicateEmulateBitrateModified, "\x80\x1A\x06", 3)) return false;
-        printf("  [3/5] Enabling 48kHz sample rate...\n");
+        patchCount++;
+#else
+        printf("  [BITRATE] DuplicateEmulateBitrate - SKIPPED\n"); skipCount++;
+#endif
+
+#if PATCH_Emulate48Khz
+        printf("  [SAMPLERATE] Emulate48Khz (NOP cmovb)...\n");
         if (!PatchBytes(Offsets::Emulate48Khz, "\x90\x90\x90", 3)) return false;
-        if (AUDIO_GAIN == 1) {
-            printf("  [4/5] Injecting audio processing (no amplification)...\n");
-        } else {
-            printf("  [4/5] Injecting audio processing (%dx gain)...\n", AUDIO_GAIN);
-        }
-        // Build HighPassFilter stub: mov rax, <HighpassCutoffFilter VA>; ret
-        // The stub replaces the filter function with an immediate return.
-        // The address in rax is cosmetic (caller ignores return value) but
-        // we compute it correctly for clarity during reverse engineering.
+        patchCount++;
+#else
+        printf("  [SAMPLERATE] Emulate48Khz - SKIPPED\n"); skipCount++;
+#endif
+
+#if PATCH_HighPassFilter
+        printf("  [FILTER] HighPassFilter (RET stub)...\n");
         {
             constexpr uint64_t IMAGE_BASE = 0x180000000ULL;
             uint64_t hpcVA = IMAGE_BASE + Offsets::HighpassCutoffFilter;
             unsigned char hpPatch[11];
-            hpPatch[0] = 0x48;  // REX.W
-            hpPatch[1] = 0xB8;  // mov rax, imm64
+            hpPatch[0] = 0x48;
+            hpPatch[1] = 0xB8;
             memcpy(hpPatch + 2, &hpcVA, 8);
-            hpPatch[10] = 0xC3;  // ret
+            hpPatch[10] = 0xC3;
             if (!PatchBytes(Offsets::HighPassFilter, (const char*)hpPatch, 11)) return false;
         }
+        patchCount++;
+#else
+        printf("  [FILTER] HighPassFilter - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_HighpassCutoffFilter
+        printf("  [FILTER] HighpassCutoffFilter (inject hp_cutoff)...\n");
         if (!PatchBytes(Offsets::HighpassCutoffFilter, (const char*)hp_cutoff, 0x100)) return false;
+        patchCount++;
+#else
+        printf("  [FILTER] HighpassCutoffFilter - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_DcReject
+        printf("  [FILTER] DcReject (inject dc_reject)...\n");
         if (!PatchBytes(Offsets::DcReject, (const char*)dc_reject, 0x1B6)) return false;
+        patchCount++;
+#else
+        printf("  [FILTER] DcReject - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_DownmixFunc
+        printf("  [FILTER] DownmixFunc (RET)...\n");
         if (!PatchBytes(Offsets::DownmixFunc, "\xC3", 1)) return false;
+        patchCount++;
+#else
+        printf("  [FILTER] DownmixFunc - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_AudioEncoderOpusConfigIsOk
+        printf("  [FILTER] AudioEncoderConfigIsOk (RET true)...\n");
         if (!PatchBytes(Offsets::AudioEncoderOpusConfigIsOk, "\x48\xC7\xC0\x01\x00\x00\x00\xC3", 8)) return false;
+        patchCount++;
+#else
+        printf("  [FILTER] AudioEncoderConfigIsOk - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_ThrowError
+        printf("  [FILTER] ThrowError (RET)...\n");
         if (!PatchBytes(Offsets::ThrowError, "\xC3", 1)) return false;
-        printf("  [5/5] Patching encoder config init (400kbps at creation)...\n");
-        // Patch both Opus encoder config constructors to initialize with 400kbps
-        // instead of default 32kbps - prevents bitrate reset between encoder creation
-        // and first SetBitrate call. 400000 = 0x61A80.
+        patchCount++;
+#else
+        printf("  [FILTER] ThrowError - SKIPPED\n"); skipCount++;
+#endif
+
+#if PATCH_EncoderConfigInit1
+        printf("  [ENCODER] EncoderConfigInit1 (400kbps)...\n");
         if (!PatchBytes(Offsets::EncoderConfigInit1, "\x80\x1A\x06\x00", 4)) return false;
+        patchCount++;
+#else
+        printf("  [ENCODER] EncoderConfigInit1 - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_EncoderConfigInit2
+        printf("  [ENCODER] EncoderConfigInit2 (400kbps)...\n");
         if (!PatchBytes(Offsets::EncoderConfigInit2, "\x80\x1A\x06\x00", 4)) return false;
+        patchCount++;
+#else
+        printf("  [ENCODER] EncoderConfigInit2 - SKIPPED\n"); skipCount++;
+#endif
 
-        // Post-patch verification: enforce 400000 bps bytes at every bitrate patch site.
-        const unsigned char bps400_3[] = {0x80, 0x1A, 0x06};
-        const unsigned char bps400_4[] = {0x80, 0x1A, 0x06, 0x00};
-        const unsigned char bps400_5[] = {0x80, 0x1A, 0x06, 0x00, 0x00};
-        if (!CheckBytes(Offsets::EmulateBitrateModified, bps400_3, 3) ||
-            !CheckBytes(Offsets::DuplicateEmulateBitrateModified, bps400_3, 3) ||
-            !CheckBytes(Offsets::SetsBitrateBitrateValue, bps400_5, 5) ||
-            !CheckBytes(Offsets::EncoderConfigInit1, bps400_4, 4) ||
-            !CheckBytes(Offsets::EncoderConfigInit2, bps400_4, 4)) {
-            printf("ERROR: Post-patch bitrate verification failed.\n");
-            printf("Expected 400000 bps byte pattern (80 1A 06) was not present at all sites.\n");
-            return false;
-        }
+#if PATCH_EmulateBitrateModified && PATCH_SetsBitrateBitrateValue && PATCH_DuplicateEmulateBitrateModified && PATCH_EncoderConfigInit1 && PATCH_EncoderConfigInit2
+        {
+            const unsigned char bps400_3[] = {0x80, 0x1A, 0x06};
+            const unsigned char bps400_4[] = {0x80, 0x1A, 0x06, 0x00};
+            const unsigned char bps400_5[] = {0x80, 0x1A, 0x06, 0x00, 0x00};
+            if (!CheckBytes(Offsets::EmulateBitrateModified, bps400_3, 3) ||
+                !CheckBytes(Offsets::DuplicateEmulateBitrateModified, bps400_3, 3) ||
+                !CheckBytes(Offsets::SetsBitrateBitrateValue, bps400_5, 5) ||
+                !CheckBytes(Offsets::EncoderConfigInit1, bps400_4, 4) ||
+                !CheckBytes(Offsets::EncoderConfigInit2, bps400_4, 4)) {
+                printf("ERROR: Post-patch bitrate verification failed.\n");
+                printf("Expected 400000 bps byte pattern (80 1A 06) was not present at all sites.\n");
+                return false;
+            }
 
-        uint32_t setBitrateValue = 0;
-        uint32_t encoderInit1Value = 0;
-        uint32_t encoderInit2Value = 0;
-        if (!ReadU32LE(Offsets::SetsBitrateBitrateValue, setBitrateValue) ||
-            !ReadU32LE(Offsets::EncoderConfigInit1, encoderInit1Value) ||
-            !ReadU32LE(Offsets::EncoderConfigInit2, encoderInit2Value)) {
-            printf("ERROR: Failed to read back bitrate values for verification.\n");
-            return false;
-        }
-        if (setBitrateValue != 400000 || encoderInit1Value != 400000 || encoderInit2Value != 400000) {
-            printf("ERROR: Bitrate verification mismatch after patching.\n");
-            printf("  SetBitrate=%u, EncoderInit1=%u, EncoderInit2=%u (expected all 400000)\n",
+            uint32_t setBitrateValue = 0;
+            uint32_t encoderInit1Value = 0;
+            uint32_t encoderInit2Value = 0;
+            if (!ReadU32LE(Offsets::SetsBitrateBitrateValue, setBitrateValue) ||
+                !ReadU32LE(Offsets::EncoderConfigInit1, encoderInit1Value) ||
+                !ReadU32LE(Offsets::EncoderConfigInit2, encoderInit2Value)) {
+                printf("ERROR: Failed to read back bitrate values for verification.\n");
+                return false;
+            }
+            if (setBitrateValue != 400000 || encoderInit1Value != 400000 || encoderInit2Value != 400000) {
+                printf("ERROR: Bitrate verification mismatch after patching.\n");
+                printf("  SetBitrate=%u, EncoderInit1=%u, EncoderInit2=%u (expected all 400000)\n",
+                       setBitrateValue, encoderInit1Value, encoderInit2Value);
+                return false;
+            }
+            printf("  Verified bitrate values: %u / %u / %u bps\n",
                    setBitrateValue, encoderInit1Value, encoderInit2Value);
-            return false;
         }
-        printf("  Verified bitrate values: %u / %u / %u bps\n",
-               setBitrateValue, encoderInit1Value, encoderInit2Value);
-        printf("  All patches applied successfully!\n");
+#else
+        printf("  [!] Bitrate verification skipped (not all bitrate patches enabled)\n");
+#endif
+
+        printf("\n  Applied: %d patches, Skipped: %d patches\n", patchCount, skipCount);
+        if (patchCount > 0) {
+            printf("  All selected patches applied successfully!\n");
+        } else {
+            printf("  WARNING: No patches were applied!\n");
+        }
         return true;
     }
 
@@ -1902,11 +2243,19 @@ function Start-Patching {
     if ($guiResult.Action -eq 'PatchAll') {
         $Script:DoFixAll = $true
         $Script:PendingGainForPatchAll = $guiResult.Multiplier
+        if ($guiResult.DebugMode -and $guiResult.SelectedPatches) {
+            $Script:SelectedPatches = $guiResult.SelectedPatches
+            Write-Log "Debug Mode: $(($guiResult.SelectedPatches.Values | Where-Object { $_ }).Count) / $($Script:AllPatchKeys.Count) patches selected" -Level Warning
+        }
         return Start-Patching
     }
 
     Show-Settings
     Initialize-Environment
+    if ($guiResult.DebugMode -and $guiResult.SelectedPatches) {
+        $Script:SelectedPatches = $guiResult.SelectedPatches
+        Write-Log "Debug Mode: $(($guiResult.SelectedPatches.Values | Where-Object { $_ }).Count) / $($Script:AllPatchKeys.Count) patches selected" -Level Warning
+    }
     $selectedClientInfo = $Script:DiscordClients[$guiResult.ClientIndex]
     if (-not $selectedClientInfo) {
         Write-Log "Invalid client selection" -Level Error
