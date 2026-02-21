@@ -969,8 +969,44 @@ function Cleanup-TempFiles {
 # region Source Code Generation
 
 function Get-AmplifierSourceCode {
-    $gain = $Script:Config.AudioGainMultiplier
-    Write-Log "Generating amplifier: Gain=$gain x (unity at 1x, stereo normalized)" -Level Info
+    $gain = [int]$Script:Config.AudioGainMultiplier
+    if ($gain -ge 3) {
+        Write-Log "Generating amplifier: 3x+ ONLY -> Multiplier = $($gain - 2) (GUI $gain x)" -Level Info
+        $multiplier = $gain - 2
+        return @"
+#define Multiplier $multiplier
+
+typedef signed char        int8_t;
+typedef short              int16_t;
+typedef int                int32_t;
+typedef long long          int64_t;
+typedef unsigned char      uint8_t;
+typedef unsigned short     uint16_t;
+typedef unsigned int       uint32_t;
+typedef unsigned long long uint64_t;
+
+extern "C" void __cdecl hp_cutoff(const float* in, int cutoff_Hz, float* out, int* hp_mem, int len, int channels, int Fs, int arch)
+{
+    int* st = (hp_mem - 3553);
+    *(int*)(st + 3557) = 1002;
+    *(int*)((char*)st + 160) = -1;
+    *(int*)((char*)st + 164) = -1;
+    *(int*)((char*)st + 184) = 0;
+    for (unsigned long i = 0; i < channels * len; i++) out[i] = in[i] * (channels + Multiplier);
+}
+
+extern "C" void __cdecl dc_reject(const float* in, float* out, int* hp_mem, int len, int channels, int Fs)
+{
+    int* st = (hp_mem - 3553);
+    *(int*)(st + 3557) = 1002;
+    *(int*)((char*)st + 160) = -1;
+    *(int*)((char*)st + 164) = -1;
+    *(int*)((char*)st + 184) = 0;
+    for (int i = 0; i < channels * len; i++) out[i] = in[i] * (channels + Multiplier);
+}
+"@
+    }
+    Write-Log "Generating amplifier: 1x/2x ONLY -> GAIN_MULTIPLIER = $gain" -Level Info
     return @"
 #define GAIN_MULTIPLIER $gain
 
@@ -1402,15 +1438,44 @@ function New-SourceFiles {
         [System.IO.File]::WriteAllText($patcher, $patcherCode, [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllText($amp, $ampCode, [System.Text.Encoding]::ASCII)
         $ampContent = Get-Content $amp -Raw
-        if ($ampContent -match '#define GAIN_MULTIPLIER (\d+)') {
-            $actualGain = $Matches[1]
-            $expectedGain = $Script:Config.AudioGainMultiplier
-            Write-Log "VERIFY: #define GAIN_MULTIPLIER = $actualGain (expected: $expectedGain)" -Level Info
-            if ([int]$actualGain -ne $expectedGain) {
-                Write-Log "WARNING: Gain mismatch! File has $actualGain but expected $expectedGain" -Level Warning
+        $cfgGain = [int]$Script:Config.AudioGainMultiplier
+        if ($cfgGain -ge 3) {
+            if ($ampContent -match '#define GAIN_MULTIPLIER') {
+                Write-Log "ERROR: 3x+ path must not contain GAIN_MULTIPLIER. Wrong amplifier code was generated." -Level Error
+            }
+            if ($ampContent -match '#define Multiplier (-?\d+)') {
+                $actualMult = $Matches[1]
+                $expectedMult = $cfgGain - 2
+                Write-Log "VERIFY: 3x+ ONLY - #define Multiplier = $actualMult (expected: $expectedMult for ${cfgGain}x)" -Level Info
+                if ([int]$actualMult -ne $expectedMult) {
+                    Write-Log "WARNING: Multiplier mismatch! File has $actualMult but expected $expectedMult" -Level Warning
+                }
+                if ($ampContent -match 'channels \+ Multiplier') {
+                    Write-Log "VERIFY: amplifier.cpp uses ONLY (channels + Multiplier) for 3x+" -Level Info
+                } else {
+                    Write-Log "WARNING: Could not confirm 3x+ formula in amplifier.cpp" -Level Warning
+                }
+            } else {
+                Write-Log "WARNING: Could not find #define Multiplier in generated code!" -Level Warning
             }
         } else {
-            Write-Log "WARNING: Could not find #define GAIN_MULTIPLIER in generated code!" -Level Warning
+            if ($ampContent -match '#define Multiplier ') {
+                Write-Log "ERROR: 1x/2x path must not contain Multiplier. Wrong amplifier code was generated." -Level Error
+            }
+            if ($ampContent -match '#define GAIN_MULTIPLIER (\d+)') {
+                $actualGain = $Matches[1]
+                Write-Log "VERIFY: 1x/2x ONLY - #define GAIN_MULTIPLIER = $actualGain (expected: $cfgGain)" -Level Info
+                if ([int]$actualGain -ne $cfgGain) {
+                    Write-Log "WARNING: Gain mismatch! File has $actualGain but expected $cfgGain" -Level Warning
+                }
+                if ($ampContent -match 'float scale = 1\.0f' -and $ampContent -match 'GAIN_MULTIPLIER \* scale') {
+                    Write-Log "VERIFY: amplifier.cpp uses ONLY 1x/2x path (scale + GAIN_MULTIPLIER)" -Level Info
+                } else {
+                    Write-Log "WARNING: Could not confirm 1x/2x path in amplifier.cpp" -Level Warning
+                }
+            } else {
+                Write-Log "WARNING: Could not find #define GAIN_MULTIPLIER in generated code!" -Level Warning
+            }
         }
         if (-not (Test-Path $patcher)) { throw "patcher.cpp was not created at: $patcher" }
         if (-not (Test-Path $amp)) { throw "amplifier.cpp was not created at: $amp" }
