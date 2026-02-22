@@ -18,7 +18,14 @@ $Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-
 $Script:SCRIPT_VERSION = "5.0.1"
 
 # region Offsets (PASTE HERE)
-
+#
+# This patcher uses ONE offsets table.
+# When Discord updates and your offset finder produces new values, paste them here.
+#
+# Tip: keep the MD5/Size in OffsetsMeta updated too. If it doesn't match the downloaded
+# discord_voice.node, the script will stop early with a clear message instead of failing
+# later with a confusing "Binary validation failed".
+#
 $Script:OffsetsMeta = @{
     FinderVersion = "discord_voice_node_offset_finder.py v5.0"
     Build         = "Feb 17 2026"
@@ -35,7 +42,6 @@ $Script:Offsets = @{
     EmulateBitrateModified            = 0x53918A
     SetsBitrateBitrateValue           = 0x53AFB1
     SetsBitrateBitwiseOr              = 0x53AFB9
-    DuplicateEmulateBitrateModified   = 0x53E070
     Emulate48Khz                      = 0x538E93
     HighPassFilter                    = 0x544FA0
     HighpassCutoffFilter              = 0x8BD4C0
@@ -43,10 +49,12 @@ $Script:Offsets = @{
     DownmixFunc                       = 0x8B9830
     AudioEncoderOpusConfigIsOk        = 0x3A7540
     ThrowError                        = 0x2BFF70
+    DuplicateEmulateBitrateModified   = 0x53E070
     EncoderConfigInit1                = 0x3A72AE
     EncoderConfigInit2                = 0x3A6BB7
-    EncoderConfigInit3                = 0x43FFEE
 }
+
+# endregion Offsets
 
 # region Patch Definitions (Debug Mode)
 
@@ -91,6 +99,26 @@ foreach ($k in $Script:AllPatchKeys) { $Script:SelectedPatches[$k] = $true }
 
 # endregion Patch Definitions
 
+# region Console
+function Wait-EnterOrTimeout {
+    param([int]$Seconds = 60)
+    $msg = "Press Enter to exit (auto-close in ${Seconds}s)..."
+    try {
+        Write-Host $msg
+        $end = [DateTime]::UtcNow.AddSeconds($Seconds)
+        while ([DateTime]::UtcNow -lt $end) {
+            if ([Console]::KeyAvailable) {
+                $k = [Console]::ReadKey($true)
+                if ($k.Key -eq 'Enter') { return }
+            }
+            Start-Sleep -Milliseconds 300
+        }
+    } catch {
+        Start-Sleep -Seconds $Seconds
+    }
+}
+# endregion Console
+
 # region Auto-Elevation
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -109,7 +137,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
         exit 0
     } catch {
         Write-Host "ERROR: Failed to elevate. Please run as Administrator manually." -ForegroundColor Red
-        Read-Host "Press Enter to exit"; exit 1
+        Wait-EnterOrTimeout; exit 1
     }
 }
 
@@ -225,6 +253,43 @@ function Get-UserConfig {
 }
 
 function EnsureDir($p) { if ($p -and -not (Test-Path $p)) { try { [void](New-Item $p -ItemType Directory -Force) } catch { } } }
+
+function Get-OffsetsCopyBlock {
+    $meta = $Script:OffsetsMeta
+    $offs = $Script:Offsets
+    if (-not $meta -or -not $offs) { throw "Offsets not loaded" }
+    $offsetOrder = @(
+        "CreateAudioFrameStereo", "AudioEncoderOpusConfigSetChannels", "MonoDownmixer",
+        "EmulateStereoSuccess1", "EmulateStereoSuccess2", "EmulateBitrateModified",
+        "SetsBitrateBitrateValue", "SetsBitrateBitwiseOr", "Emulate48Khz",
+        "HighPassFilter", "HighpassCutoffFilter", "DcReject", "DownmixFunc",
+        "AudioEncoderOpusConfigIsOk", "ThrowError", "DuplicateEmulateBitrateModified",
+        "EncoderConfigInit1", "EncoderConfigInit2"
+    )
+    $maxLen = ($offsetOrder | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+    $lines = @(
+        "# region Offsets (PASTE HERE)",
+        "",
+        "`$Script:OffsetsMeta = @{",
+        "    FinderVersion = `"$($meta.FinderVersion)`"",
+        "    Build         = `"$($meta.Build)`"",
+        "    Size          = $($meta.Size)",
+        "    MD5           = `"$($meta.MD5)`"",
+        "}",
+        "",
+        "`$Script:Offsets = @{"
+    )
+    foreach ($k in $offsetOrder) {
+        $val = $offs[$k]
+        if ($null -eq $val) { continue }
+        $pad = " " * ($maxLen - $k.Length)
+        $lines += "    $k$pad = 0x$($val.ToString('X'))"
+    }
+    $lines += "}"
+    $lines += ""
+    $lines += "# endregion Offsets"
+    $lines -join "`n"
+}
 
 # endregion User Config Persistence
 
@@ -770,6 +835,9 @@ function Show-ConfigurationGUI {
     $groupCheckboxes = @{}
     $totalPatches = $Script:AllPatchKeys.Count
     $Script:SuppressGroupToggle = $false
+    $Script:DebugPatchCheckboxes = $patchCheckboxes
+    $Script:DebugGroupCheckboxes = $groupCheckboxes
+    $Script:DebugTotalPatches = $totalPatches
 
     $debugBadge = New-Object Windows.Forms.Label -Property @{
         Location = "20,515"; Size = "90,24"; Text = "DEBUG MODE"
@@ -790,14 +858,19 @@ function Show-ConfigurationGUI {
     $form.Controls.Add($debugPanel)
 
     $counterLabel = New-Object Windows.Forms.Label -Property @{
-        Location = "340,8"; Size = "150,20"; TextAlign = [Drawing.ContentAlignment]::MiddleRight
+        Location = "408,8"; Size = "100,20"; TextAlign = [Drawing.ContentAlignment]::MiddleRight
         Font = New-Object Drawing.Font("Segoe UI", 9); ForeColor = [Drawing.Color]::FromArgb(185,187,190)
     }
     $debugPanel.Controls.Add($counterLabel)
+    $Script:DebugCounterLabel = $counterLabel
 
     $updateCounter = {
-        $enabled = @($patchCheckboxes.Values | Where-Object { $_.Checked }).Count
-        $counterLabel.Text = "$enabled / $totalPatches patches enabled"
+        $pb = $Script:DebugPatchCheckboxes
+        $lbl = $Script:DebugCounterLabel
+        $tot = $Script:DebugTotalPatches
+        if ($null -eq $pb -or $null -eq $lbl) { return }
+        $enabled = @($pb.Values | Where-Object { $_.Checked }).Count
+        $lbl.Text = "$enabled / $tot patches enabled"
     }
 
     $selectAllBtn = New-Object Windows.Forms.Button -Property @{
@@ -808,8 +881,9 @@ function Show-ConfigurationGUI {
     $selectAllBtn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(64,68,75)
     $selectAllBtn.Add_Click({
         $Script:SuppressGroupToggle = $true
-        foreach ($cb in $patchCheckboxes.Values) { $cb.Checked = $true }
-        foreach ($gcb in $groupCheckboxes.Values) { $gcb.Checked = $true }
+        $pb = $Script:DebugPatchCheckboxes; $gb = $Script:DebugGroupCheckboxes
+        if ($pb) { foreach ($cb in $pb.Values) { $cb.Checked = $true } }
+        if ($gb) { foreach ($gcb in $gb.Values) { $gcb.Checked = $true } }
         $Script:SuppressGroupToggle = $false
         & $updateCounter
     })
@@ -823,12 +897,36 @@ function Show-ConfigurationGUI {
     $deselectAllBtn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(64,68,75)
     $deselectAllBtn.Add_Click({
         $Script:SuppressGroupToggle = $true
-        foreach ($cb in $patchCheckboxes.Values) { $cb.Checked = $false }
-        foreach ($gcb in $groupCheckboxes.Values) { $gcb.Checked = $false }
+        $pb = $Script:DebugPatchCheckboxes; $gb = $Script:DebugGroupCheckboxes
+        if ($pb) { foreach ($cb in $pb.Values) { $cb.Checked = $false } }
+        if ($gb) { foreach ($gcb in $gb.Values) { $gcb.Checked = $false } }
         $Script:SuppressGroupToggle = $false
         & $updateCounter
     })
     $debugPanel.Controls.Add($deselectAllBtn)
+
+    $copyOffsetsBtn = New-Object Windows.Forms.Button -Property @{
+        Location = "212,5"; Size = "95,25"; Text = "Copy Offsets"; FlatStyle = "Flat"
+        BackColor = [Drawing.Color]::FromArgb(54,57,63); ForeColor = [Drawing.Color]::White
+        Font = New-Object Drawing.Font("Segoe UI", 8); Cursor = [Windows.Forms.Cursors]::Hand
+    }
+    $copyOffsetsBtn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(64,68,75)
+    $copyOffsetsBtn.Add_Click({
+        try {
+            $block = Get-OffsetsCopyBlock
+            [System.Windows.Forms.Clipboard]::SetText($block)
+            $Script:StatusLabelCopyOffsets.Text = "Offsets copied"
+        } catch {
+            $Script:StatusLabelCopyOffsets.Text = "Copy failed"
+        }
+    })
+    $debugPanel.Controls.Add($copyOffsetsBtn)
+    $copyOffsetsStatus = New-Object Windows.Forms.Label -Property @{
+        Location = "312,8"; Size = "90,20"; Text = ""
+        Font = New-Object Drawing.Font("Segoe UI", 8); ForeColor = [Drawing.Color]::FromArgb(87,242,135)
+    }
+    $debugPanel.Controls.Add($copyOffsetsStatus)
+    $Script:StatusLabelCopyOffsets = $copyOffsetsStatus
 
     $yPos = 40
     $groupColors = @{
@@ -852,18 +950,20 @@ function Show-ConfigurationGUI {
             Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
         }
         $grpChk.Add_CheckedChanged({
-            param($sender, $e)
+            param($snd, $e)
             if ($Script:SuppressGroupToggle) { return }
             $Script:SuppressGroupToggle = $true
-            $gn = $sender.Text
-            foreach ($pk in $Script:PatchGroups[$gn].Keys) {
-                if ($patchCheckboxes.ContainsKey($pk)) {
-                    $patchCheckboxes[$pk].Checked = $sender.Checked
+            $gn = $snd.Text
+            $pb = $Script:DebugPatchCheckboxes
+            $grp = $Script:PatchGroups[$gn]
+            if ($pb -and $grp) {
+                foreach ($pk in $grp.Keys) {
+                    if ($pb.ContainsKey($pk)) { $pb[$pk].Checked = $snd.Checked }
                 }
             }
             $Script:SuppressGroupToggle = $false
             & $updateCounter
-        }.GetNewClosure())
+        })
         $groupCheckboxes[$groupName] = $grpChk
         $debugPanel.Controls.Add($grpChk)
         $yPos += 24
@@ -881,30 +981,33 @@ function Show-ConfigurationGUI {
                 Font = New-Object Drawing.Font("Segoe UI", 9)
             }
             $pChk.Add_CheckedChanged({
-                param($sender, $e)
+                param($snd, $e)
                 if ($Script:SuppressGroupToggle) { return }
                 $Script:SuppressGroupToggle = $true
                 & $updateCounter
-                foreach ($gn in $Script:PatchGroups.Keys) {
-                    $allChecked = $true
-                    foreach ($pk in $Script:PatchGroups[$gn].Keys) {
-                        if ($patchCheckboxes.ContainsKey($pk) -and -not $patchCheckboxes[$pk].Checked) {
-                            $allChecked = $false; break
+                $pb = $Script:DebugPatchCheckboxes
+                $gb = $Script:DebugGroupCheckboxes
+                if ($pb -and $gb) {
+                    foreach ($gn in $Script:PatchGroups.Keys) {
+                        $allChecked = $true
+                        $grp = $Script:PatchGroups[$gn]
+                        if ($grp) {
+                            foreach ($pk in $grp.Keys) {
+                                if ($pb.ContainsKey($pk) -and -not $pb[$pk].Checked) { $allChecked = $false; break }
+                            }
                         }
-                    }
-                    if ($groupCheckboxes.ContainsKey($gn)) {
-                        $groupCheckboxes[$gn].Checked = $allChecked
+                        if ($gb.ContainsKey($gn)) { $gb[$gn].Checked = $allChecked }
                     }
                 }
                 $Script:SuppressGroupToggle = $false
-            }.GetNewClosure())
+            })
             $patchCheckboxes[$patchKey] = $pChk
             $debugPanel.Controls.Add($pChk)
 
             $infoLabel = New-Object Windows.Forms.Label -Property @{
                 Location = New-Object Drawing.Point(65, ($yPos + 20))
                 Size = New-Object Drawing.Size(420, 16)
-                Text = "$offsetHex  $([char]0x2192)  $($patchInfo.Hex)"
+                Text = "$offsetHex  ->  $($patchInfo.Hex)"
                 Font = New-Object Drawing.Font("Consolas", 7.5)
                 ForeColor = [Drawing.Color]::FromArgb(120,124,128)
             }
@@ -933,8 +1036,11 @@ function Show-ConfigurationGUI {
         if (-not $Script:GuiInstalledIndices.ContainsKey($selectedIdx)) { $statusLabel.Text = "Selected client is not installed!"; return }
         $patchSel = @{}
         $isDbg = $debugPanel.Visible
-        foreach ($pk in $patchCheckboxes.Keys) {
-            $patchSel[$pk] = if ($isDbg) { $patchCheckboxes[$pk].Checked } else { $true }
+        $pb = if ($isDbg) { $Script:DebugPatchCheckboxes } else { $patchCheckboxes }
+        if ($pb) {
+            foreach ($pk in $pb.Keys) {
+                $patchSel[$pk] = if ($isDbg) { $pb[$pk].Checked } else { $true }
+            }
         }
         $form.Tag = @{ Action = 'Patch'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; ClientIndex = $selectedIdx; DebugMode = $isDbg; SelectedPatches = $patchSel }
         $form.DialogResult = "OK"; $form.Close()
@@ -944,8 +1050,11 @@ function Show-ConfigurationGUI {
         if ($Script:GuiInstalledClients.Count -eq 0) { $statusLabel.Text = "No Discord clients detected to patch!"; return }
         $patchSel = @{}
         $isDbg = $debugPanel.Visible
-        foreach ($pk in $patchCheckboxes.Keys) {
-            $patchSel[$pk] = if ($isDbg) { $patchCheckboxes[$pk].Checked } else { $true }
+        $pb = if ($isDbg) { $Script:DebugPatchCheckboxes } else { $patchCheckboxes }
+        if ($pb) {
+            foreach ($pk in $pb.Keys) {
+                $patchSel[$pk] = if ($isDbg) { $pb[$pk].Checked } else { $true }
+            }
         }
         $form.Tag = @{ Action = 'PatchAll'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; DebugMode = $isDbg; SelectedPatches = $patchSel }
         $form.DialogResult = "OK"; $form.Close()
@@ -1282,6 +1391,8 @@ function Get-PatcherSourceCode {
     $offsets = $Script:Config.Offsets
     $c = $Script:Config
     $sp = $Script:SelectedPatches
+    $bitrateKbps = [Math]::Min(400, [int]$c.Bitrate)
+    if ([int]$c.Bitrate -ne $bitrateKbps) { Write-Log "Bitrate clamped to ${bitrateKbps}kbps for patcher" -Level Warning }
 
     $patchDefines = ""
     foreach ($k in $Script:AllPatchKeys) {
@@ -1298,7 +1409,7 @@ function Get-PatcherSourceCode {
 #include <cstdint>
 
 #define SAMPLE_RATE $($c.SampleRate)
-#define BITRATE $($c.Bitrate)
+#define BITRATE $bitrateKbps
 #define AUDIO_GAIN $($c.AudioGainMultiplier)
 
 $patchDefines
@@ -1506,7 +1617,6 @@ private:
 #else
         printf("  [BITRATE] DuplicateEmulateBitrate - SKIPPED\n"); skipCount++;
 #endif
-
 #if PATCH_Emulate48Khz
         printf("  [SAMPLERATE] Emulate48Khz (NOP cmovb)...\n");
         if (!PatchBytes(Offsets::Emulate48Khz, "\x90\x90\x90", 3)) return false;
@@ -2145,7 +2255,7 @@ function Start-Patching {
         $installedClients = @(Get-InstalledClients)
         if ($installedClients.Count -eq 0) {
             Write-Log "No Discord clients found! Make sure Discord is installed." -Level Error
-            Read-Host "Press Enter"
+            Wait-EnterOrTimeout
             return $false
         }
 
@@ -2153,7 +2263,7 @@ function Start-Patching {
             $installedClients = @($installedClients | Where-Object { $_.Name -like "*$FixClient*" })
             if ($installedClients.Count -eq 0) {
                 Write-Log "No clients matching '$FixClient' found" -Level Error
-                Read-Host "Press Enter"
+                Wait-EnterOrTimeout
                 return $false
             }
         }
@@ -2167,13 +2277,13 @@ function Start-Patching {
 
         $compiler = Find-Compiler
         if (-not $compiler) {
-            Read-Host "Press Enter"
+            Wait-EnterOrTimeout
             return $false
         }
 
         $voiceBackupPath = Get-PreparedVoiceBackupPath
         if (-not $voiceBackupPath) {
-            Read-Host "Press Enter"
+            Wait-EnterOrTimeout
             return $false
         }
 
@@ -2209,7 +2319,7 @@ function Start-Patching {
             }
         }
         Save-UserConfig
-        Read-Host "Press Enter to exit"
+        Wait-EnterOrTimeout
         return ($result.Success -eq $result.Total)
     }
 
@@ -2251,7 +2361,7 @@ function Start-Patching {
     $selectedClientInfo = $Script:DiscordClients[$guiResult.ClientIndex]
     if (-not $selectedClientInfo) {
         Write-Log "Invalid client selection" -Level Error
-        Read-Host "Press Enter"
+        Wait-EnterOrTimeout
         return $false
     }
 
@@ -2260,19 +2370,19 @@ function Start-Patching {
     $targetClient = $installedClients | Where-Object { $_.Index -eq $guiResult.ClientIndex } | Select-Object -First 1
     if (-not $targetClient) {
         Write-Log "Selected client is not installed!" -Level Error
-        Read-Host "Press Enter"
+        Wait-EnterOrTimeout
         return $false
     }
 
     $compiler = Find-Compiler
     if (-not $compiler) {
-        Read-Host "Press Enter"
+        Wait-EnterOrTimeout
         return $false
     }
 
     $voiceBackupPath = Get-PreparedVoiceBackupPath
     if (-not $voiceBackupPath) {
-        Read-Host "Press Enter"
+        Wait-EnterOrTimeout
         return $false
     }
 
@@ -2326,7 +2436,7 @@ function Start-Patching {
         Write-Log "=== PATCHING FAILED ===" -Level Error
     }
     Save-UserConfig
-    Read-Host "Press Enter to exit"
+    Wait-EnterOrTimeout
     return ($result.Success -gt 0)
 }
 
@@ -2341,7 +2451,7 @@ try {
 } catch {
     Write-Host "`nFATAL ERROR: $_" -ForegroundColor Red
     Write-Host $_.ScriptStackTrace -ForegroundColor Red
-    Read-Host "Press Enter to exit"; exit 1
+    Wait-EnterOrTimeout; exit 1
 }
 
 # endregion Run
