@@ -1,18 +1,19 @@
-# Discord Voice Node Patcher
+# 🎙️ Discord Voice Node Patcher
 
-**Studio-grade audio for Discord: 48kHz - 384kbps - True Stereo**
+**Studio-grade audio for Discord: 48kHz · 384kbps · True Stereo**
 
 ![Version](https://img.shields.io/badge/Version-6.0-5865F2?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?style=flat-square)
 
 ---
-> **Debug mode:** Use the **Debug** button in the GUI to show an optional panel where you can enable/disable individual patches (by name) and copy the offset block for use with the offset finder.
-## Download & Run
+> ⚠️ **Debug mode:** Use the **Debug** button in the GUI to show an optional panel where you can enable/disable individual patches (by name) and copy the offset block for use with the offset finder.
+
+## ⬇️ Download & Run
 
 ### Option 1: One-Click BAT (Recommended)
 
-[**Download DiscordVoicePatcher.bat**](https://github.com/ProdHallow/Discord-Node-Patcher/releases/latest)
+[**📥 Download DiscordVoicePatcher.bat**](https://github.com/ProdHallow/Discord-Node-Patcher/releases/latest)
 
 Just download and double-click. Always runs the latest version.
 
@@ -20,7 +21,7 @@ Just download and double-click. Always runs the latest version.
 
 ### Option 2: One-Liner (No Download)
 
-> This one-liner is **PowerShell**. It will **not** work in **Command Prompt (cmd.exe)**.
+> ⚠️ This one-liner is **PowerShell**. It will **not** work in **Command Prompt (cmd.exe)**.
 >
 > If you pasted it into cmd.exe, use the cmd.exe version below (it launches PowerShell for you).
 
@@ -38,7 +39,7 @@ Paste into the matching shell and press Enter.
 
 ---
 
-## Requirement
+## ⚠️ Requirement
 
 **You need a C++ compiler.** Install one of these first:
 
@@ -52,7 +53,7 @@ If you do not have a compiler, the patcher will show a popup with a **"Download 
 
 ---
 
-## What It Does
+## ✨ What It Does
 
 | Before | After |
 |:------:|:-----:|
@@ -63,11 +64,11 @@ If you do not have a compiler, the patcher will show a popup with a **"Download 
 
 Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, Equicord, BetterVencord, Lightcord**
 
-> **Gain:** 1x and 2x use stereo-normalized gain (no +3 dB jump on mono-to-stereo). 3x and above use a separate multiplier formula `(channels + Multiplier)` for consistent boost.
+> 🎚️ **Gain:** 1x and 2x use stereo-normalized gain (no +3 dB jump on mono-to-stereo). 3x and above use a separate multiplier formula `(channels + Multiplier)` for consistent boost.
 
 ---
 
-## What's New in v6.0
+## 🆕 What's New in v6.0
 
 | Feature | Description |
 |---------|-------------|
@@ -81,7 +82,7 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 ---
 
 <details>
-<summary><h2>Full Documentation</h2></summary>
+<summary><h2>📖 Full Documentation</h2></summary>
 
 ### GUI Features
 
@@ -108,9 +109,9 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 
 | Level | Use Case | Safety |
 |:-----:|----------|:------:|
-| 1-2x | Normal use (stereo-normalized) | Safe |
-| 3-4x | Quiet sources (`channels + Multiplier`) | Caution |
-| 5-10x | Maximum boost | May distort |
+| 1-2x | Normal use (stereo-normalized) | ✅ Safe |
+| 3-4x | Quiet sources (`channels + Multiplier`) | ⚠️ Caution |
+| 5-10x | Maximum boost | ❌ May distort |
 
 ### File Locations
 
@@ -122,7 +123,7 @@ Works with: **Discord Stable, Canary, PTB, Development, BetterDiscord, Vencord, 
 </details>
 
 <details>
-<summary><h2>Troubleshooting</h2></summary>
+<summary><h2>🔧 Troubleshooting</h2></summary>
 
 | Problem | Solution |
 |---------|----------|
@@ -150,7 +151,7 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; $u =
 </details>
 
 <details>
-<summary><h2>Changelog</h2></summary>
+<summary><h2>📋 Changelog</h2></summary>
 
 ### v6.0 — Current
 - **VERSION:** Bump to 6.0. Consolidates 384kbps, 19 offsets, hybrid gain, debug mode, compiler popup, strict verification, and ASCII-only script.
@@ -203,7 +204,7 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; $u =
 </details>
 
 <details>
-<summary><h2>Technical Details</h2></summary>
+<summary><h2>🔬 Technical Details</h2></summary>
 
 ### How It Works (v6.0)
 
@@ -276,7 +277,7 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; $u =
 
 ---
 
-## Credits
+## 👥 Credits
 
 **Offsets & Research** — Cypher, Oracle  
 **Script & GUI** — Claude (Anthropic)  
@@ -284,7 +285,7 @@ $ProgressPreference='SilentlyContinue'; $p = Join-Path $env:TEMP 'dvp.ps1'; $u =
 
 ---
 
-> **Disclaimer:** Modifies Discord files. Use at your own risk. Re-run after Discord updates. Not affiliated with Discord Inc.
+> ⚠️ **Disclaimer:** Modifies Discord files. Use at your own risk. Re-run after Discord updates. Not affiliated with Discord Inc.
 
 <div align="center">
 
