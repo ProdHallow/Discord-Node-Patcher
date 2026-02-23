@@ -325,7 +325,9 @@ function Check-ForUpdate {
                     return @{ UpdateAvailable = $false; Reason = "LocalIsNewer" }
                 }
             } catch {
-                Write-Log "Could not compare versions (local=$Script:SCRIPT_VERSION, remote=$remoteVersion)" -Level Warning
+                Write-Log "Could not compare versions (local=$Script:SCRIPT_VERSION, remote=$remoteVersion) - skipping update" -Level Warning
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+                return @{ UpdateAvailable = $false; Reason = "VersionParseError" }
             }
             Write-Log "Update available! (v$Script:SCRIPT_VERSION -> v$remoteVersion)" -Level Warning
             return @{ UpdateAvailable = $true; TempFile = $tempFile; RemoteVersion = $remoteVersion; LocalVersion = $Script:SCRIPT_VERSION }
@@ -336,6 +338,7 @@ function Check-ForUpdate {
         }
     } catch {
         Write-Log "Update check failed: $($_.Exception.Message)" -Level Warning
+        if ($tempFile -and (Test-Path $tempFile)) { Remove-Item $tempFile -Force -ErrorAction SilentlyContinue }
         return @{ UpdateAvailable = $false; Reason = "Error"; Error = $_.Exception.Message }
     }
 }
@@ -434,7 +437,11 @@ function Get-PathFromShortcuts {
         foreach ($lf in $scs) {
             try {
                 $sc = $ws.CreateShortcut($lf.FullName)
-                if ($sc.TargetPath -and (Test-Path $sc.TargetPath)) { return (Split-Path $sc.TargetPath -Parent) }
+                try {
+                    if ($sc.TargetPath -and (Test-Path $sc.TargetPath)) { return (Split-Path $sc.TargetPath -Parent) }
+                } finally {
+                    if ($sc) { try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($sc) | Out-Null } catch { } }
+                }
             } catch { }
         }
     } catch { } finally {
@@ -450,7 +457,7 @@ function Find-DiscordAppPath {
         return $null
     }
     $af = @(Get-ChildItem $BasePath -Filter "app-*" -Directory -ErrorAction SilentlyContinue |
-        Sort-Object { $folder = $_; try { if ($folder.Name -match "app-([\d\.]+)") { [Version]$matches[1] } else { $folder.Name } } catch { $folder.Name } } -Descending)
+        Sort-Object { try { if ($_.Name -match "app-([\d\.]+)") { [Version]$matches[1] } else { [Version]"0.0.0" } } catch { [Version]"0.0.0" } } -Descending)
     $diag = @{
         BasePath = $BasePath; AppFoldersFound = @(); ModulesFolderExists = $false; VoiceModuleExists = $false
         LatestAppFolder = $null; LatestAppVersion = $null; ModulesPath = $null; VoiceModulePath = $null; Error = $null
@@ -552,7 +559,7 @@ function Stop-DiscordProcesses {
             } catch { $p = @() }
         }
     }
-    if ($p) {
+    if ($p -and @($p).Count -gt 0) {
         $p | Stop-Process -Force -ErrorAction SilentlyContinue
         for ($i = 0; $i -lt 20; $i++) {
             $remaining = Get-Process -Name $ProcessNames -ErrorAction SilentlyContinue
@@ -931,6 +938,7 @@ function Show-ConfigurationGUI {
         SAMPLERATE = [Drawing.Color]::FromArgb(87,242,135)
         FILTER     = [Drawing.Color]::FromArgb(254,231,92)
         ENCODER    = [Drawing.Color]::FromArgb(254,231,92)
+        BWE_384    = [Drawing.Color]::FromArgb(254,231,92)
     }
 
     foreach ($groupName in $Script:PatchGroups.Keys) {
@@ -1098,7 +1106,7 @@ function Initialize-Environment {
     }
     $tempDir = $Script:Config.TempDir
     if (Test-Path $tempDir) {
-        @("patcher.cpp", "amplifier.cpp", "DiscordVoicePatcher.exe", "build.bat", "build.log") | ForEach-Object {
+        @("patcher.cpp", "amplifier.cpp", "DiscordVoicePatcher.exe", "build.bat", "build.log", "patcher.obj", "amplifier.obj", "patcher_stdout.txt", "patcher_stderr.txt") | ForEach-Object {
             $file = Join-Path $tempDir $_
             if (Test-Path $file) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
         }
@@ -1283,7 +1291,7 @@ function Find-Compiler {
 function Cleanup-TempFiles {
     $tempDir = $Script:Config.TempDir
     if (-not $tempDir -or -not (Test-Path $tempDir)) { return }
-    @("patcher.cpp", "amplifier.cpp", "DiscordVoicePatcher.exe", "build.bat", "build.log", "patcher.obj", "amplifier.obj") | ForEach-Object {
+    @("patcher.cpp", "amplifier.cpp", "DiscordVoicePatcher.exe", "build.bat", "build.log", "patcher.obj", "amplifier.obj", "patcher_stdout.txt", "patcher_stderr.txt") | ForEach-Object {
         $file = Join-Path $tempDir $_
         if (Test-Path $file) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
     }
@@ -1837,7 +1845,7 @@ int main(int argc, char* argv[]) {
             for (const char** pn = processNames; *pn != NULL; pn++) {
                 if (strcmp(entry.szExeFile, *pn) == 0) {
                     printf("Found Discord (PID: %lu)\n", entry.th32ProcessID);
-                    HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
+                    HANDLE process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, entry.th32ProcessID);
                     if (!process) { printf("ERROR: Cannot open process (run as Administrator)\n"); continue; }
                     HMODULE modules[1024];
                     DWORD bytesNeeded;
@@ -2028,6 +2036,9 @@ function Invoke-Compilation {
         }
         if (Test-Path $exe) {
             $exeInfo = Get-Item $exe
+            if ($exeInfo.Length -lt 4096) {
+                throw "Build produced invalid exe ($($exeInfo.Length) bytes)"
+            }
             Write-Log "Compilation successful! Exe size: $([Math]::Round($exeInfo.Length / 1KB, 1)) KB" -Level Success
             return $exe
         }
@@ -2403,7 +2414,11 @@ function Start-Patching {
     if (-not $installPath -and $selectedClientInfo.Path -and (Test-Path $selectedClientInfo.Path)) {
         $installPath = (Get-Item $selectedClientInfo.Path).FullName
     }
-    $stopped = Stop-DiscordProcesses -ProcessNames $selectedClientInfo.Processes -InstallPath $installPath
+    if ($installPath) {
+        $stopped = Stop-DiscordProcesses -ProcessNames $selectedClientInfo.Processes -InstallPath $installPath
+    } else {
+        $stopped = Stop-DiscordProcesses -ProcessNames $selectedClientInfo.Processes
+    }
     if (-not $stopped) {
         Write-Log "Warning: Some processes may still be running" -Level Warning
         Start-Sleep -Seconds 2
@@ -2427,7 +2442,7 @@ function Start-Patching {
                     Write-Log "Launching via Update.exe..." -Level Info
                     Start-Process $updateExe -ArgumentList "--processStart", $selectedClientInfo.Exe -WindowStyle Hidden -RedirectStandardOutput $discordOut -RedirectStandardError $discordErr
                 } else {
-                    $appFolder = Get-ChildItem $discordPath -Directory -Filter "app-*" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+                    $appFolder = Get-ChildItem $discordPath -Directory -Filter "app-*" -ErrorAction SilentlyContinue | Sort-Object { try { if ($_.Name -match "app-([\d\.]+)") { [Version]$matches[1] } else { [Version]"0.0.0" } } catch { [Version]"0.0.0" } } -Descending | Select-Object -First 1
                     if ($appFolder) {
                         $exePath = Join-Path $appFolder.FullName $selectedClientInfo.Exe
                         if (Test-Path $exePath) {
