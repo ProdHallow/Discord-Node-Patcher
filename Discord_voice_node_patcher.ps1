@@ -18,14 +18,7 @@ $Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-
 $Script:SCRIPT_VERSION = "5.0.1"
 
 # region Offsets (PASTE HERE)
-#
-# This patcher uses ONE offsets table.
-# When Discord updates and your offset finder produces new values, paste them here.
-#
-# Tip: keep the MD5/Size in OffsetsMeta updated too. If it doesn't match the downloaded
-# discord_voice.node, the script will stop early with a clear message instead of failing
-# later with a confusing "Binary validation failed".
-#
+
 $Script:OffsetsMeta = @{
     FinderVersion = "discord_voice_node_offset_finder.py v5.0"
     Build         = "Feb 17 2026"
@@ -49,14 +42,15 @@ $Script:Offsets = @{
     DownmixFunc                       = 0x8B9830
     AudioEncoderOpusConfigIsOk        = 0x3A7540
     ThrowError                        = 0x2BFF70
-    DuplicateEmulateBitrateModified   = 0x53E070
     EncoderConfigInit1                = 0x3A72AE
     EncoderConfigInit2                = 0x3A6BB7
+    BWE_Thr2                          = 0x44005B
+    BWE_Thr3                          = 0x44006A
 }
 
 # endregion Offsets
 
-# region Patch Definitions (Debug Mode)
+# region Patch Definitions
 
 $Script:PatchGroups = [ordered]@{
     STEREO = [ordered]@{
@@ -67,10 +61,9 @@ $Script:PatchGroups = [ordered]@{
         MonoDownmixer = @{ Name = "MonoDownmixer (NOP sled + JMP)"; Hex = "90 90 90 90 90 90 90 90 90 90 90 90 E9" }
     }
     BITRATE = [ordered]@{
-        EmulateBitrateModified = @{ Name = "EmulateBitrateModified (400kbps)"; Hex = "80 1A 06" }
-        SetsBitrateBitrateValue = @{ Name = "SetsBitrateBitrateValue"; Hex = "80 1A 06 00 00" }
+        EmulateBitrateModified = @{ Name = "EmulateBitrateModified (384kbps)"; Hex = "00 DC 05" }
+        SetsBitrateBitrateValue = @{ Name = "SetsBitrateBitrateValue (384kbps)"; Hex = "00 DC 05 00 00" }
         SetsBitrateBitwiseOr = @{ Name = "SetsBitrateBitwiseOr (NOP)"; Hex = "90 90 90" }
-        DuplicateEmulateBitrateModified = @{ Name = "DuplicateEmulateBitrate"; Hex = "80 1A 06" }
     }
     SAMPLERATE = [ordered]@{
         Emulate48Khz = @{ Name = "Emulate48Khz (NOP cmovb)"; Hex = "90 90 90" }
@@ -84,8 +77,12 @@ $Script:PatchGroups = [ordered]@{
         ThrowError = @{ Name = "ThrowError (RET)"; Hex = "C3" }
     }
     ENCODER = [ordered]@{
-        EncoderConfigInit1 = @{ Name = "EncoderConfigInit1 (400kbps)"; Hex = "80 1A 06 00" }
-        EncoderConfigInit2 = @{ Name = "EncoderConfigInit2 (400kbps)"; Hex = "80 1A 06 00" }
+        EncoderConfigInit1 = @{ Name = "EncoderConfigInit1 (32000->384000)"; Hex = "00 DC 05 00" }
+        EncoderConfigInit2 = @{ Name = "EncoderConfigInit2 (32000->384000)"; Hex = "00 DC 05 00" }
+    }
+    BWE_384 = [ordered]@{
+        BWE_Thr2 = @{ Name = "BWE_Thr2 (518400->384000)"; Hex = "00 DC 05 00" }
+        BWE_Thr3 = @{ Name = "BWE_Thr3 (921600->384000)"; Hex = "00 DC 05 00" }
     }
 }
 
@@ -117,6 +114,7 @@ function Wait-EnterOrTimeout {
         Start-Sleep -Seconds $Seconds
     }
 }
+
 # endregion Console
 
 # region Auto-Elevation
@@ -147,7 +145,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 
 $Script:GainExplicitlySet = $PSBoundParameters.ContainsKey('AudioGainMultiplier')
 $Script:Config = @{
-    SampleRate = 48000; Bitrate = 400; Channels = "Stereo"
+    SampleRate = 48000; Bitrate = 384; Channels = "Stereo"
     AudioGainMultiplier = $AudioGainMultiplier; SkipBackup = $SkipBackup.IsPresent; AutoRelaunch = $true
     ModuleName = "discord_voice.node"
     TempDir = "$env:TEMP\DiscordVoicePatcher"; BackupDir = "$env:TEMP\DiscordVoicePatcher\Backups"
@@ -181,7 +179,6 @@ function Get-FileMd5Hex {
             return (Get-FileHash -Path $Path -Algorithm MD5).Hash.ToLowerInvariant()
         }
     } catch { }
-    # Fallback for older environments
     $md5 = [System.Security.Cryptography.MD5]::Create()
     try {
         $fs = [System.IO.File]::OpenRead($Path)
@@ -207,7 +204,7 @@ function Write-Log {
 
 function Write-Banner {
     Write-Host "`n===== Discord Voice Quality Patcher v$Script:SCRIPT_VERSION =====" -ForegroundColor Cyan
-    Write-Host "      48kHz | 400kbps | Stereo | Gain Config" -ForegroundColor Cyan
+    Write-Host "      48kHz | 384kbps | Stereo | Gain Config" -ForegroundColor Cyan
     Write-Host "         Multi-Client Detection Enabled" -ForegroundColor Cyan
     Write-Host " Requires C++ build tools (VS workload or MinGW/Clang)" -ForegroundColor Yellow
     Write-Host "===============================================`n" -ForegroundColor Cyan
@@ -263,8 +260,9 @@ function Get-OffsetsCopyBlock {
         "EmulateStereoSuccess1", "EmulateStereoSuccess2", "EmulateBitrateModified",
         "SetsBitrateBitrateValue", "SetsBitrateBitwiseOr", "Emulate48Khz",
         "HighPassFilter", "HighpassCutoffFilter", "DcReject", "DownmixFunc",
-        "AudioEncoderOpusConfigIsOk", "ThrowError", "DuplicateEmulateBitrateModified",
-        "EncoderConfigInit1", "EncoderConfigInit2"
+        "AudioEncoderOpusConfigIsOk", "ThrowError",
+        "EncoderConfigInit1", "EncoderConfigInit2",
+        "BWE_Thr2", "BWE_Thr3"
     )
     $maxLen = ($offsetOrder | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
     $lines = @(
@@ -318,7 +316,6 @@ function Check-ForUpdate {
         if ($remoteContent -ne $localContent) {
             $remoteVersion = "Unknown"
             if ($remoteContent -match 'SCRIPT_VERSION\s*=\s*"([^"]+)"') { $remoteVersion = $matches[1] }
-            # Prevent downgrade: only offer update if remote version is actually newer
             try {
                 $localVer = [version]($Script:SCRIPT_VERSION -replace '[^0-9.]','')
                 $remoteVer = [version]($remoteVersion -replace '[^0-9.]','')
@@ -328,7 +325,6 @@ function Check-ForUpdate {
                     return @{ UpdateAvailable = $false; Reason = "LocalIsNewer" }
                 }
             } catch {
-                # If version parsing fails, fall through to offer update with warning
                 Write-Log "Could not compare versions (local=$Script:SCRIPT_VERSION, remote=$remoteVersion)" -Level Warning
             }
             Write-Log "Update available! (v$Script:SCRIPT_VERSION -> v$remoteVersion)" -Level Warning
@@ -421,7 +417,7 @@ function Get-PathFromProcess {
     try {
         $p = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($p -and $p.MainModule -and $p.MainModule.FileName) { return (Split-Path (Split-Path $p.MainModule.FileName -Parent) -Parent) }
-    } catch {}
+    } catch { }
     return $null
 }
 
@@ -442,7 +438,7 @@ function Get-PathFromShortcuts {
             } catch { }
         }
     } catch { } finally {
-        if ($ws) { try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ws) | Out-Null } catch {} }
+        if ($ws) { try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ws) | Out-Null } catch { } }
     }
     return $null
 }
@@ -490,7 +486,7 @@ function Get-DiscordAppVersion {
     try {
         $exe = Get-ChildItem $AppPath -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($exe) { return (Get-Item $exe.FullName).VersionInfo.ProductVersion }
-    } catch {}
+    } catch { }
     return "Unknown"
 }
 
@@ -764,7 +760,7 @@ function Show-ConfigurationGUI {
 
     & $newLabel 20 20 400 30 "Discord Voice Quality Patcher" (New-Object Drawing.Font("Segoe UI", 16, [Drawing.FontStyle]::Bold)) ([Drawing.Color]::FromArgb(88,101,242))
     & $newLabel 420 28 80 20 "v$Script:SCRIPT_VERSION" (New-Object Drawing.Font("Segoe UI", 9)) ([Drawing.Color]::FromArgb(150,152,157))
-    & $newLabel 20 55 480 20 "48kHz | 400kbps | Stereo | Multi-Client Support" (New-Object Drawing.Font("Segoe UI", 9)) ([Drawing.Color]::FromArgb(185,187,190))
+    & $newLabel 20 55 480 20 "48kHz | 384kbps | Stereo | Multi-Client Support" (New-Object Drawing.Font("Segoe UI", 9)) ([Drawing.Color]::FromArgb(185,187,190))
     & $newLabel 20 85 480 25 "Discord Client" (New-Object Drawing.Font("Segoe UI", 11, [Drawing.FontStyle]::Bold)) $null
 
     $clientCombo = New-Object Windows.Forms.ComboBox -Property @{
@@ -942,10 +938,11 @@ function Show-ConfigurationGUI {
         $groupColor = $groupColors[$groupName]
         if (-not $groupColor) { $groupColor = [Drawing.Color]::FromArgb(254,231,92) }
 
+        $grpChecked = ($patches.Keys | ForEach-Object { $Script:SelectedPatches[$_] } | Where-Object { $_ }).Count -eq $patches.Count
         $grpChk = New-Object Windows.Forms.CheckBox -Property @{
             Location = New-Object Drawing.Point(20, $yPos)
             Size = New-Object Drawing.Size(460, 22)
-            Text = $groupName; Checked = $true
+            Text = $groupName; Checked = $grpChecked
             ForeColor = $groupColor
             Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
         }
@@ -976,7 +973,7 @@ function Show-ConfigurationGUI {
             $pChk = New-Object Windows.Forms.CheckBox -Property @{
                 Location = New-Object Drawing.Point(45, $yPos)
                 Size = New-Object Drawing.Size(440, 20)
-                Text = $patchInfo.Name; Checked = $true
+                Text = $patchKey; Checked = ($Script:SelectedPatches[$patchKey] -eq $true)
                 ForeColor = [Drawing.Color]::White
                 Font = New-Object Drawing.Font("Segoe UI", 9)
             }
@@ -1391,7 +1388,7 @@ function Get-PatcherSourceCode {
     $offsets = $Script:Config.Offsets
     $c = $Script:Config
     $sp = $Script:SelectedPatches
-    $bitrateKbps = [Math]::Min(400, [int]$c.Bitrate)
+    $bitrateKbps = [Math]::Min(384, [int]$c.Bitrate)
     if ([int]$c.Bitrate -ne $bitrateKbps) { Write-Log "Bitrate clamped to ${bitrateKbps}kbps for patcher" -Level Warning }
 
     $patchDefines = ""
@@ -1432,9 +1429,10 @@ namespace Offsets {
     constexpr uint32_t DownmixFunc = $('0x{0:X}' -f $offsets.DownmixFunc);
     constexpr uint32_t AudioEncoderOpusConfigIsOk = $('0x{0:X}' -f $offsets.AudioEncoderOpusConfigIsOk);
     constexpr uint32_t ThrowError = $('0x{0:X}' -f $offsets.ThrowError);
-    constexpr uint32_t DuplicateEmulateBitrateModified = $('0x{0:X}' -f $offsets.DuplicateEmulateBitrateModified);
     constexpr uint32_t EncoderConfigInit1 = $('0x{0:X}' -f $offsets.EncoderConfigInit1);
     constexpr uint32_t EncoderConfigInit2 = $('0x{0:X}' -f $offsets.EncoderConfigInit2);
+    constexpr uint32_t BWE_Thr2 = $('0x{0:X}' -f $offsets.BWE_Thr2);
+    constexpr uint32_t BWE_Thr3 = $('0x{0:X}' -f $offsets.BWE_Thr3);
     constexpr uint32_t FILE_OFFSET_ADJUSTMENT = 0xC00;
 };
 
@@ -1490,9 +1488,7 @@ private:
         constexpr LONGLONG MIN_EXPECTED_SIZE = 12 * 1024 * 1024;
         constexpr LONGLONG MAX_EXPECTED_SIZE = 18 * 1024 * 1024;
         if (fileSize < MIN_EXPECTED_SIZE || fileSize > MAX_EXPECTED_SIZE) {
-            printf("ERROR: File size %.2f MB is outside expected range (12-18 MB)\n",
-                   fileSize / (1024.0 * 1024.0));
-            printf("This may not be the correct discord_voice.node build for these offsets.\n");
+            printf("ERROR: File size %.2f MB outside expected range (12-18 MB). Wrong build?\n", fileSize / (1024.0 * 1024.0));
             return false;
         }
 
@@ -1505,6 +1501,9 @@ private:
         const unsigned char orig_48khz[]    = {0x0F, 0x42, 0xC1};
         const unsigned char orig_configok[] = {0x8B, 0x11, 0x31, 0xC0};
         const unsigned char orig_downmix[]  = {0x41, 0x57, 0x41, 0x56};
+        const unsigned char orig_bwe_thr2[] = {0x00, 0xE9, 0x07, 0x00};
+        const unsigned char orig_bwe_thr3[] = {0x00, 0x10, 0x0E, 0x00};
+        const unsigned char orig_enc_32k[]  = {0x00, 0x7D, 0x00, 0x00};
 
         const unsigned char patched_48khz[]    = {0x90, 0x90, 0x90};
         const unsigned char patched_configok[] = {0x48, 0xC7, 0xC0, 0x01};
@@ -1513,6 +1512,10 @@ private:
         bool o1 = CheckBytes(Offsets::Emulate48Khz, orig_48khz, 3);
         bool o2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, orig_configok, 4);
         bool o3 = CheckBytes(Offsets::DownmixFunc, orig_downmix, 4);
+        bool o_bwe2 = CheckBytes(Offsets::BWE_Thr2 + 3, orig_bwe_thr2, 4);
+        bool o_bwe3 = CheckBytes(Offsets::BWE_Thr3 + 3, orig_bwe_thr3, 4);
+        bool o_enc1 = CheckBytes(Offsets::EncoderConfigInit1, orig_enc_32k, 4);
+        bool o_enc2 = CheckBytes(Offsets::EncoderConfigInit2, orig_enc_32k, 4);
 
         bool p1 = CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3);
         bool p2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, patched_configok, 4);
@@ -1522,21 +1525,21 @@ private:
             printf("WARNING: This file appears to already be patched!\n");
             printf("Re-patching anyway to ensure all patches are applied...\n\n");
         } else if (!o1 || !o2 || !o3) {
-            printf("ERROR: Binary validation failed - unexpected bytes at patch sites.\n");
-            printf("  Emulate48Khz (0x53 section):     %s\n", o1 ? "OK" : "MISMATCH");
-            printf("  ConfigIsOk   (0x3A section):     %s\n", o2 ? "OK" : "MISMATCH");
-            printf("  DownmixFunc  (0x8B section):     %s\n", o3 ? "OK" : "MISMATCH");
-            printf("\nThis discord_voice.node does not match the expected Feb 2026 build.\n");
-            printf("The offsets in this patcher are for a specific build and cannot be\n");
-            printf("applied safely to a different version.\n");
+            printf("ERROR: Binary validation failed - wrong build.\n");
+            printf("  Emulate48Khz: %s  ConfigIsOk: %s  DownmixFunc: %s\n", o1 ? "OK" : "MISMATCH", o2 ? "OK" : "MISMATCH", o3 ? "OK" : "MISMATCH");
             return false;
+        }
+        if (!o_bwe2 || !o_bwe3) {
+            printf("WARNING: BWE validation failed - BWE patches will be skipped. Run find_bwe_offsets.py for your node.\n\n");
+        }
+        if (!o_enc1 || !o_enc2) {
+            printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2 will be skipped if selected.\n\n");
         }
 
         auto PatchBytes = [&](uint32_t offset, const char* bytes, size_t len) -> bool {
             uint32_t fileOffset = offset - Offsets::FILE_OFFSET_ADJUSTMENT;
             if ((LONGLONG)(fileOffset + len) > fileSize) {
-                printf("ERROR: Patch at 0x%X (len %zu) exceeds file size!\n", offset, len);
-                printf("The discord_voice.node may not match the expected build.\n");
+                printf("ERROR: Patch at 0x%X (len %zu) exceeds file size.\n", offset, len);
                 return false;
             }
             memcpy((char*)fileData + fileOffset, bytes, len);
@@ -1590,15 +1593,15 @@ private:
 #endif
 
 #if PATCH_EmulateBitrateModified
-        printf("  [BITRATE] EmulateBitrateModified (400kbps)...\n");
-        if (!PatchBytes(Offsets::EmulateBitrateModified, "\x80\x1A\x06", 3)) return false;
+        printf("  [BITRATE] EmulateBitrateModified (384kbps)...\n");
+        if (!PatchBytes(Offsets::EmulateBitrateModified, "\x00\xDC\x05", 3)) return false;
         patchCount++;
 #else
         printf("  [BITRATE] EmulateBitrateModified - SKIPPED\n"); skipCount++;
 #endif
 #if PATCH_SetsBitrateBitrateValue
-        printf("  [BITRATE] SetsBitrateBitrateValue...\n");
-        if (!PatchBytes(Offsets::SetsBitrateBitrateValue, "\x80\x1A\x06\x00\x00", 5)) return false;
+        printf("  [BITRATE] SetsBitrateBitrateValue (384kbps)...\n");
+        if (!PatchBytes(Offsets::SetsBitrateBitrateValue, "\x00\xDC\x05\x00\x00", 5)) return false;
         patchCount++;
 #else
         printf("  [BITRATE] SetsBitrateBitrateValue - SKIPPED\n"); skipCount++;
@@ -1609,13 +1612,6 @@ private:
         patchCount++;
 #else
         printf("  [BITRATE] SetsBitrateBitwiseOr - SKIPPED\n"); skipCount++;
-#endif
-#if PATCH_DuplicateEmulateBitrateModified
-        printf("  [BITRATE] DuplicateEmulateBitrate...\n");
-        if (!PatchBytes(Offsets::DuplicateEmulateBitrateModified, "\x80\x1A\x06", 3)) return false;
-        patchCount++;
-#else
-        printf("  [BITRATE] DuplicateEmulateBitrate - SKIPPED\n"); skipCount++;
 #endif
 #if PATCH_Emulate48Khz
         printf("  [SAMPLERATE] Emulate48Khz (NOP cmovb)...\n");
@@ -1678,55 +1674,65 @@ private:
 #endif
 
 #if PATCH_EncoderConfigInit1
-        printf("  [ENCODER] EncoderConfigInit1 (400kbps)...\n");
-        if (!PatchBytes(Offsets::EncoderConfigInit1, "\x80\x1A\x06\x00", 4)) return false;
-        patchCount++;
+        if (o_enc1) {
+            printf("  [ENCODER] EncoderConfigInit1 (32000 -> 384000)...\n");
+            if (!PatchBytes(Offsets::EncoderConfigInit1, "\x00\xDC\x05\x00", 4)) return false;
+            patchCount++;
+        } else { printf("  [ENCODER] EncoderConfigInit1 - SKIPPED (validation failed)\n"); skipCount++; }
 #else
         printf("  [ENCODER] EncoderConfigInit1 - SKIPPED\n"); skipCount++;
 #endif
 #if PATCH_EncoderConfigInit2
-        printf("  [ENCODER] EncoderConfigInit2 (400kbps)...\n");
-        if (!PatchBytes(Offsets::EncoderConfigInit2, "\x80\x1A\x06\x00", 4)) return false;
-        patchCount++;
+        if (o_enc2) {
+            printf("  [ENCODER] EncoderConfigInit2 (32000 -> 384000)...\n");
+            if (!PatchBytes(Offsets::EncoderConfigInit2, "\x00\xDC\x05\x00", 4)) return false;
+            patchCount++;
+        } else { printf("  [ENCODER] EncoderConfigInit2 - SKIPPED (validation failed)\n"); skipCount++; }
 #else
         printf("  [ENCODER] EncoderConfigInit2 - SKIPPED\n"); skipCount++;
 #endif
 
-#if PATCH_EmulateBitrateModified && PATCH_SetsBitrateBitrateValue && PATCH_DuplicateEmulateBitrateModified && PATCH_EncoderConfigInit1 && PATCH_EncoderConfigInit2
-        {
-            const unsigned char bps400_3[] = {0x80, 0x1A, 0x06};
-            const unsigned char bps400_4[] = {0x80, 0x1A, 0x06, 0x00};
-            const unsigned char bps400_5[] = {0x80, 0x1A, 0x06, 0x00, 0x00};
-            if (!CheckBytes(Offsets::EmulateBitrateModified, bps400_3, 3) ||
-                !CheckBytes(Offsets::DuplicateEmulateBitrateModified, bps400_3, 3) ||
-                !CheckBytes(Offsets::SetsBitrateBitrateValue, bps400_5, 5) ||
-                !CheckBytes(Offsets::EncoderConfigInit1, bps400_4, 4) ||
-                !CheckBytes(Offsets::EncoderConfigInit2, bps400_4, 4)) {
-                printf("ERROR: Post-patch bitrate verification failed.\n");
-                printf("Expected 400000 bps byte pattern (80 1A 06) was not present at all sites.\n");
-                return false;
-            }
+#if PATCH_BWE_Thr2
+        if (o_bwe2) {
+            printf("  [BWE] BWE_Thr2 (518400 -> 384000)...\n");
+            if (!PatchBytes(Offsets::BWE_Thr2 + 3, "\x00\xDC\x05\x00", 4)) return false;
+            patchCount++;
+        } else { printf("  [BWE] BWE_Thr2 - SKIPPED (validation failed)\n"); skipCount++; }
+#else
+        printf("  [BWE] BWE_Thr2 - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_BWE_Thr3
+        if (o_bwe3) {
+            printf("  [BWE] BWE_Thr3 (921600 -> 384000)...\n");
+            if (!PatchBytes(Offsets::BWE_Thr3 + 3, "\x00\xDC\x05\x00", 4)) return false;
+            patchCount++;
+        } else { printf("  [BWE] BWE_Thr3 - SKIPPED (validation failed)\n"); skipCount++; }
+#else
+        printf("  [BWE] BWE_Thr3 - SKIPPED\n"); skipCount++;
+#endif
 
+#if PATCH_EmulateBitrateModified && PATCH_SetsBitrateBitrateValue
+        {
+            const unsigned char bps384_3[] = {0x00, 0xDC, 0x05};
+            const unsigned char bps384_5[] = {0x00, 0xDC, 0x05, 0x00, 0x00};
+            if (!CheckBytes(Offsets::EmulateBitrateModified, bps384_3, 3) ||
+                !CheckBytes(Offsets::SetsBitrateBitrateValue, bps384_5, 5)) {
+                printf("ERROR: Post-patch bitrate verification failed (384000 bps pattern missing).\n");
+                return false;
+            }
             uint32_t setBitrateValue = 0;
-            uint32_t encoderInit1Value = 0;
-            uint32_t encoderInit2Value = 0;
-            if (!ReadU32LE(Offsets::SetsBitrateBitrateValue, setBitrateValue) ||
-                !ReadU32LE(Offsets::EncoderConfigInit1, encoderInit1Value) ||
-                !ReadU32LE(Offsets::EncoderConfigInit2, encoderInit2Value)) {
-                printf("ERROR: Failed to read back bitrate values for verification.\n");
+            if (!ReadU32LE(Offsets::SetsBitrateBitrateValue, setBitrateValue)) {
+                printf("ERROR: Failed to read back bitrate value for verification.\n");
                 return false;
             }
-            if (setBitrateValue != 400000 || encoderInit1Value != 400000 || encoderInit2Value != 400000) {
-                printf("ERROR: Bitrate verification mismatch after patching.\n");
-                printf("  SetBitrate=%u, EncoderInit1=%u, EncoderInit2=%u (expected all 400000)\n",
-                       setBitrateValue, encoderInit1Value, encoderInit2Value);
+            if (setBitrateValue != 384000) {
+                printf("ERROR: Bitrate verification mismatch after patching (SetBitrate=%u, expected 384000)\n", setBitrateValue);
                 return false;
             }
-            printf("  Verified bitrate values: %u / %u / %u bps\n",
-                   setBitrateValue, encoderInit1Value, encoderInit2Value);
+            printf("  Verified bitrate: %u bps\n", setBitrateValue);
         }
 #else
-        printf("  [!] Bitrate verification skipped (not all bitrate patches enabled)\n");
+        printf("  Bitrate verification skipped (bitrate patches not all enabled).\n");
 #endif
 
         printf("\n  Applied: %d patches, Skipped: %d patches\n", patchCount, skipCount);
