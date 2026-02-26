@@ -46,6 +46,7 @@ $Script:Offsets = @{
     EncoderConfigInit2                = 0x3A6BB7
     BWE_Thr2                          = 0x44005B
     BWE_Thr3                          = 0x44006A
+    CwndPushback                      = 0x58C4D0
 }
 
 # endregion Offsets
@@ -83,6 +84,9 @@ $Script:PatchGroups = [ordered]@{
     BWE_384 = [ordered]@{
         BWE_Thr2 = @{ Name = "BWE_Thr2 (518400->384000)"; Hex = "00 DC 05 00" }
         BWE_Thr3 = @{ Name = "BWE_Thr3 (921600->384000)"; Hex = "00 DC 05 00" }
+    }
+    CWND = [ordered]@{
+        CwndPushback = @{ Name = "CwndPushback (disable congestion window pushback)"; Hex = "90 90" }
     }
 }
 
@@ -262,7 +266,8 @@ function Get-OffsetsCopyBlock {
         "HighPassFilter", "HighpassCutoffFilter", "DcReject", "DownmixFunc",
         "AudioEncoderOpusConfigIsOk", "ThrowError",
         "EncoderConfigInit1", "EncoderConfigInit2",
-        "BWE_Thr2", "BWE_Thr3"
+        "BWE_Thr2", "BWE_Thr3",
+        "CwndPushback"
     )
     $maxLen = ($offsetOrder | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
     $lines = @(
@@ -1441,6 +1446,7 @@ namespace Offsets {
     constexpr uint32_t EncoderConfigInit2 = $('0x{0:X}' -f $offsets.EncoderConfigInit2);
     constexpr uint32_t BWE_Thr2 = $('0x{0:X}' -f $offsets.BWE_Thr2);
     constexpr uint32_t BWE_Thr3 = $('0x{0:X}' -f $offsets.BWE_Thr3);
+    constexpr uint32_t CwndPushback = $('0x{0:X}' -f $offsets.CwndPushback);
     constexpr uint32_t FILE_OFFSET_ADJUSTMENT = 0xC00;
 };
 
@@ -1512,6 +1518,7 @@ private:
         const unsigned char orig_bwe_thr2[] = {0x00, 0xE9, 0x07, 0x00};
         const unsigned char orig_bwe_thr3[] = {0x00, 0x10, 0x0E, 0x00};
         const unsigned char orig_enc_32k[]  = {0x00, 0x7D, 0x00, 0x00};
+        const unsigned char orig_cwnd[]     = {0x7E, 0x5A};
 
         const unsigned char patched_48khz[]    = {0x90, 0x90, 0x90};
         const unsigned char patched_configok[] = {0x48, 0xC7, 0xC0, 0x01};
@@ -1524,6 +1531,7 @@ private:
         bool o_bwe3 = CheckBytes(Offsets::BWE_Thr3 + 3, orig_bwe_thr3, 4);
         bool o_enc1 = CheckBytes(Offsets::EncoderConfigInit1, orig_enc_32k, 4);
         bool o_enc2 = CheckBytes(Offsets::EncoderConfigInit2, orig_enc_32k, 4);
+        bool o_cwnd = CheckBytes(Offsets::CwndPushback, orig_cwnd, 2);
 
         bool p1 = CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3);
         bool p2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, patched_configok, 4);
@@ -1542,6 +1550,9 @@ private:
         }
         if (!o_enc1 || !o_enc2) {
             printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2 will be skipped if selected.\n\n");
+        }
+        if (!o_cwnd) {
+            printf("WARNING: CwndPushback validation failed - congestion window patch will be skipped.\n\n");
         }
 
         auto PatchBytes = [&](uint32_t offset, const char* bytes, size_t len) -> bool {
@@ -1717,6 +1728,16 @@ private:
         } else { printf("  [BWE] BWE_Thr3 - SKIPPED (validation failed)\n"); skipCount++; }
 #else
         printf("  [BWE] BWE_Thr3 - SKIPPED\n"); skipCount++;
+#endif
+
+#if PATCH_CwndPushback
+        if (o_cwnd) {
+            printf("  [CWND] CwndPushback (disable congestion window pushback)...\n");
+            if (!PatchBytes(Offsets::CwndPushback, "\x90\x90", 2)) return false;
+            patchCount++;
+        } else { printf("  [CWND] CwndPushback - SKIPPED (validation failed)\n"); skipCount++; }
+#else
+        printf("  [CWND] CwndPushback - SKIPPED\n"); skipCount++;
 #endif
 
 #if PATCH_EmulateBitrateModified && PATCH_SetsBitrateBitrateValue
