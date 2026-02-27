@@ -44,6 +44,7 @@ $Script:Offsets = @{
     ThrowError                        = 0x2BFF70
     EncoderConfigInit1                = 0x3A72AE
     EncoderConfigInit2                = 0x3A6BB7
+    DuplicateEmulateBitrateModified   = 0x53E070
     BWE_Thr2                          = 0x44005B
     BWE_Thr3                          = 0x44006A
     CwndPushback                      = 0x58C4D0
@@ -80,6 +81,7 @@ $Script:PatchGroups = [ordered]@{
     ENCODER = [ordered]@{
         EncoderConfigInit1 = @{ Name = "EncoderConfigInit1 (32000->384000)"; Hex = "00 DC 05 00" }
         EncoderConfigInit2 = @{ Name = "EncoderConfigInit2 (32000->384000)"; Hex = "00 DC 05 00" }
+        DuplicateEmulateBitrateModified = @{ Name = "DuplicateEmulateBitrateModified (32000->384000)"; Hex = "00 DC 05 00" }
     }
     BWE_384 = [ordered]@{
         BWE_Thr2 = @{ Name = "BWE_Thr2 (518400->384000)"; Hex = "00 DC 05 00" }
@@ -266,6 +268,7 @@ function Get-OffsetsCopyBlock {
         "HighPassFilter", "HighpassCutoffFilter", "DcReject", "DownmixFunc",
         "AudioEncoderOpusConfigIsOk", "ThrowError",
         "EncoderConfigInit1", "EncoderConfigInit2",
+        "DuplicateEmulateBitrateModified",
         "BWE_Thr2", "BWE_Thr3",
         "CwndPushback"
     )
@@ -1444,6 +1447,7 @@ namespace Offsets {
     constexpr uint32_t ThrowError = $('0x{0:X}' -f $offsets.ThrowError);
     constexpr uint32_t EncoderConfigInit1 = $('0x{0:X}' -f $offsets.EncoderConfigInit1);
     constexpr uint32_t EncoderConfigInit2 = $('0x{0:X}' -f $offsets.EncoderConfigInit2);
+    constexpr uint32_t DuplicateEmulateBitrateModified = $('0x{0:X}' -f $offsets.DuplicateEmulateBitrateModified);
     constexpr uint32_t BWE_Thr2 = $('0x{0:X}' -f $offsets.BWE_Thr2);
     constexpr uint32_t BWE_Thr3 = $('0x{0:X}' -f $offsets.BWE_Thr3);
     constexpr uint32_t CwndPushback = $('0x{0:X}' -f $offsets.CwndPushback);
@@ -1531,6 +1535,7 @@ private:
         bool o_bwe3 = CheckBytes(Offsets::BWE_Thr3 + 3, orig_bwe_thr3, 4);
         bool o_enc1 = CheckBytes(Offsets::EncoderConfigInit1, orig_enc_32k, 4);
         bool o_enc2 = CheckBytes(Offsets::EncoderConfigInit2, orig_enc_32k, 4);
+        bool o_dup  = CheckBytes(Offsets::DuplicateEmulateBitrateModified, orig_enc_32k, 4);
         bool o_cwnd = CheckBytes(Offsets::CwndPushback, orig_cwnd, 2);
 
         bool p1 = CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3);
@@ -1548,8 +1553,8 @@ private:
         if (!o_bwe2 || !o_bwe3) {
             printf("WARNING: BWE validation failed - BWE patches will be skipped. Run find_bwe_offsets.py for your node.\n\n");
         }
-        if (!o_enc1 || !o_enc2) {
-            printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2 will be skipped if selected.\n\n");
+        if (!o_enc1 || !o_enc2 || !o_dup) {
+            printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2/DupBitrate will be skipped if selected.\n\n");
         }
         if (!o_cwnd) {
             printf("WARNING: CwndPushback validation failed - congestion window patch will be skipped.\n\n");
@@ -1709,6 +1714,15 @@ private:
         } else { printf("  [ENCODER] EncoderConfigInit2 - SKIPPED (validation failed)\n"); skipCount++; }
 #else
         printf("  [ENCODER] EncoderConfigInit2 - SKIPPED\n"); skipCount++;
+#endif
+#if PATCH_DuplicateEmulateBitrateModified
+        if (o_dup) {
+            printf("  [ENCODER] DuplicateEmulateBitrateModified (32000 -> 384000)...\n");
+            if (!PatchBytes(Offsets::DuplicateEmulateBitrateModified, "\x00\xDC\x05\x00", 4)) return false;
+            patchCount++;
+        } else { printf("  [ENCODER] DuplicateEmulateBitrateModified - SKIPPED (validation failed)\n"); skipCount++; }
+#else
+        printf("  [ENCODER] DuplicateEmulateBitrateModified - SKIPPED\n"); skipCount++;
 #endif
 
 #if PATCH_BWE_Thr2
