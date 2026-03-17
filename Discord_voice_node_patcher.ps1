@@ -18,39 +18,47 @@ $Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-
 $Script:SCRIPT_VERSION = "6"
 
 # region Offsets (PASTE HERE)
+# Paste output from: python discord_voice_node_offset_finder_v5.py <path\to\discord_voice.node>
+# Required: exactly these 17 offsets (RVA hex). Copy the "COPY BELOW -> Discord_voice_node_patcher.ps1" block.
 
 $Script:OffsetsMeta = @{
-    FinderVersion = "discord_voice_node_offset_finder.py v5.0"
-    Build         = "Feb 17 2026"
-    Size          = 14296504
-    MD5           = "e0b7be3c766406a5b2a7be412e3610d7"
+    FinderVersion = "discord_voice_node_offset_finder.py v5.1"
+    Build         = "Mar 9 2026"
+    Size          = 14366136
+    MD5           = "c95725a190fa8e27653235ea816fc1df"
 }
 
 $Script:Offsets = @{
-    CreateAudioFrameStereo            = 0x118E11
-    AudioEncoderOpusConfigSetChannels = 0x3A72A4
-    MonoDownmixer                     = 0xD8019
-    EmulateStereoSuccess1             = 0x538D2B
-    EmulateStereoSuccess2             = 0x538D37
-    EmulateBitrateModified            = 0x53918A
-    SetsBitrateBitrateValue           = 0x53AFB1
-    SetsBitrateBitwiseOr              = 0x53AFB9
-    Emulate48Khz                      = 0x538E93
-    HighPassFilter                    = 0x544FA0
-    HighpassCutoffFilter              = 0x8BD4C0
-    DcReject                          = 0x8BD6A0
-    DownmixFunc                       = 0x8B9830
-    AudioEncoderOpusConfigIsOk        = 0x3A7540
-    ThrowError                        = 0x2BFF70
-    EncoderConfigInit1                = 0x3A72AE
-    EncoderConfigInit2                = 0x3A6BB7
-    DuplicateEmulateBitrateModified   = 0x53E070
-    BWE_Thr2                          = 0x44005B
-    BWE_Thr3                          = 0x44006A
-    CwndPushback                      = 0x58C4D0
+    CreateAudioFrameStereo            = 0x117A41
+    AudioEncoderOpusConfigSetChannels = 0x3A8F54
+    MonoDownmixer                     = 0xD68C9
+    EmulateStereoSuccess1             = 0x53E8EB
+    EmulateStereoSuccess2             = 0x53E8F7
+    EmulateBitrateModified            = 0x53ED4A
+    SetsBitrateBitrateValue           = 0x540B71
+    SetsBitrateBitwiseOr              = 0x540B79
+    Emulate48Khz                      = 0x53EA53
+    HighPassFilter                    = 0x54AB60
+    HighpassCutoffFilter              = 0x8C7BA0
+    DcReject                          = 0x8C7D80
+    DownmixFunc                       = 0x8C3F10
+    AudioEncoderOpusConfigIsOk        = 0x3A91F0
+    ThrowError                        = 0x2C0130
+    EncoderConfigInit1                = 0x3A8F5E
+    EncoderConfigInit2                = 0x3A8867
 }
 
 # endregion Offsets
+
+# Single source of truth: 17 offsets required (order matches finder copy-block)
+$Script:RequiredOffsetNames = @(
+    "CreateAudioFrameStereo", "AudioEncoderOpusConfigSetChannels", "MonoDownmixer",
+    "EmulateStereoSuccess1", "EmulateStereoSuccess2", "EmulateBitrateModified",
+    "SetsBitrateBitrateValue", "SetsBitrateBitwiseOr", "Emulate48Khz",
+    "HighPassFilter", "HighpassCutoffFilter", "DcReject", "DownmixFunc",
+    "AudioEncoderOpusConfigIsOk", "ThrowError",
+    "EncoderConfigInit1", "EncoderConfigInit2"
+)
 
 # region Patch Definitions
 
@@ -81,14 +89,6 @@ $Script:PatchGroups = [ordered]@{
     ENCODER = [ordered]@{
         EncoderConfigInit1 = @{ Name = "EncoderConfigInit1 (32000->384000)"; Hex = "00 DC 05 00" }
         EncoderConfigInit2 = @{ Name = "EncoderConfigInit2 (32000->384000)"; Hex = "00 DC 05 00" }
-        DuplicateEmulateBitrateModified = @{ Name = "DuplicateEmulateBitrateModified (32000->384000)"; Hex = "00 DC 05 00" }
-    }
-    BWE_384 = [ordered]@{
-        BWE_Thr2 = @{ Name = "BWE_Thr2 (518400->384000)"; Hex = "00 DC 05 00" }
-        BWE_Thr3 = @{ Name = "BWE_Thr3 (921600->384000)"; Hex = "00 DC 05 00" }
-    }
-    CWND = [ordered]@{
-        CwndPushback = @{ Name = "CwndPushback (disable congestion window pushback)"; Hex = "90 90" }
     }
 }
 
@@ -261,17 +261,7 @@ function Get-OffsetsCopyBlock {
     $meta = $Script:OffsetsMeta
     $offs = $Script:Offsets
     if (-not $meta -or -not $offs) { throw "Offsets not loaded" }
-    $offsetOrder = @(
-        "CreateAudioFrameStereo", "AudioEncoderOpusConfigSetChannels", "MonoDownmixer",
-        "EmulateStereoSuccess1", "EmulateStereoSuccess2", "EmulateBitrateModified",
-        "SetsBitrateBitrateValue", "SetsBitrateBitwiseOr", "Emulate48Khz",
-        "HighPassFilter", "HighpassCutoffFilter", "DcReject", "DownmixFunc",
-        "AudioEncoderOpusConfigIsOk", "ThrowError",
-        "EncoderConfigInit1", "EncoderConfigInit2",
-        "DuplicateEmulateBitrateModified",
-        "BWE_Thr2", "BWE_Thr3",
-        "CwndPushback"
-    )
+    $offsetOrder = $Script:RequiredOffsetNames
     $maxLen = ($offsetOrder | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
     $lines = @(
         "# region Offsets (PASTE HERE)",
@@ -289,7 +279,7 @@ function Get-OffsetsCopyBlock {
         $val = $offs[$k]
         if ($null -eq $val) { continue }
         $pad = " " * ($maxLen - $k.Length)
-        $lines += "    $k$pad = 0x$($val.ToString('X'))"
+        $lines += "    $k$pad = 0x$($val.ToString('X').ToUpperInvariant())"
     }
     $lines += "}"
     $lines += ""
@@ -755,7 +745,7 @@ function Show-ConfigurationGUI {
     $Script:GuiInstalledClients = $installedClients
 
     $normalHeight = 570
-    $debugPanelHeight = 520
+    $debugPanelHeight = 550
     $debugExpandedHeight = $normalHeight + $debugPanelHeight
     $formWidth = 520
 
@@ -939,14 +929,38 @@ function Show-ConfigurationGUI {
     $debugPanel.Controls.Add($copyOffsetsStatus)
     $Script:StatusLabelCopyOffsets = $copyOffsetsStatus
 
-    $yPos = 40
+    $patchLocalBtn = New-Object Windows.Forms.Button -Property @{
+        Location = "20,35"; Size = "180,28"; Text = "Patch local (no download)"; FlatStyle = "Flat"
+        BackColor = [Drawing.Color]::FromArgb(87,242,135); ForeColor = [Drawing.Color]::FromArgb(30,30,30)
+        Font = New-Object Drawing.Font("Segoe UI", 9); Cursor = [Windows.Forms.Cursors]::Hand
+    }
+    $patchLocalBtn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(64,68,75)
+    $patchLocalBtn.Add_Click({
+        $selectedIdx = $clientCombo.SelectedIndex
+        if (-not $Script:GuiInstalledIndices.ContainsKey($selectedIdx)) {
+            [System.Windows.Forms.MessageBox]::Show("Select an installed client first.", "Debug", "OK", "Warning")
+            return
+        }
+        $patchSel = @{}
+        $pb = $Script:DebugPatchCheckboxes
+        if ($pb) { foreach ($pk in $pb.Keys) { $patchSel[$pk] = $pb[$pk].Checked } }
+        $form.Tag = @{
+            Action = 'Patch'; Multiplier = $slider.Value
+            SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked
+            ClientIndex = $selectedIdx; DebugMode = $true
+            SelectedPatches = $patchSel; PatchLocalOnly = $true
+        }
+        $form.DialogResult = "OK"; $form.Close()
+    })
+    $debugPanel.Controls.Add($patchLocalBtn)
+
+    $yPos = 70
     $groupColors = @{
         STEREO     = [Drawing.Color]::FromArgb(254,231,92)
         BITRATE    = [Drawing.Color]::FromArgb(254,231,92)
         SAMPLERATE = [Drawing.Color]::FromArgb(87,242,135)
         FILTER     = [Drawing.Color]::FromArgb(254,231,92)
         ENCODER    = [Drawing.Color]::FromArgb(254,231,92)
-        BWE_384    = [Drawing.Color]::FromArgb(254,231,92)
     }
 
     foreach ($groupName in $Script:PatchGroups.Keys) {
@@ -1055,7 +1069,11 @@ function Show-ConfigurationGUI {
                 $patchSel[$pk] = if ($isDbg) { $pb[$pk].Checked } else { $true }
             }
         }
-        $form.Tag = @{ Action = 'Patch'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; ClientIndex = $selectedIdx; DebugMode = $isDbg; SelectedPatches = $patchSel }
+        $form.Tag = @{
+            Action = 'Patch'; Multiplier = $slider.Value
+            SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked
+            ClientIndex = $selectedIdx; DebugMode = $isDbg; SelectedPatches = $patchSel
+        }
         $form.DialogResult = "OK"; $form.Close()
     }
 
@@ -1069,7 +1087,11 @@ function Show-ConfigurationGUI {
                 $patchSel[$pk] = if ($isDbg) { $pb[$pk].Checked } else { $true }
             }
         }
-        $form.Tag = @{ Action = 'PatchAll'; Multiplier = $slider.Value; SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked; DebugMode = $isDbg; SelectedPatches = $patchSel }
+        $form.Tag = @{
+            Action = 'PatchAll'; Multiplier = $slider.Value
+            SkipBackup = -not $chk.Checked; AutoRelaunch = $autoRelaunchChk.Checked
+            DebugMode = $isDbg; SelectedPatches = $patchSel
+        }
         $form.DialogResult = "OK"; $form.Close()
     }
 
@@ -1112,14 +1134,7 @@ function Initialize-Environment {
     @($Script:Config.TempDir, $Script:Config.BackupDir) | ForEach-Object {
         if ($_ -and -not (Test-Path $_)) { New-Item -ItemType Directory -Path $_ -Force | Out-Null }
     }
-    $tempDir = $Script:Config.TempDir
-    if (Test-Path $tempDir) {
-        @("patcher.cpp", "amplifier.cpp", "DiscordVoicePatcher.exe", "build.bat", "build.log", "patcher.obj", "amplifier.obj", "patcher_stdout.txt", "patcher_stderr.txt") | ForEach-Object {
-            $file = Join-Path $tempDir $_
-            if (Test-Path $file) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
-        }
-        Get-ChildItem $tempDir -Filter "DiscordVoicePatcher_*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    }
+    Cleanup-TempFiles
     "=== Discord Voice Patcher Log ===`nStarted: $(Get-Date)`nGain: $($Script:Config.AudioGainMultiplier)x`n" | Out-File $Script:Config.LogFile -Force -ErrorAction SilentlyContinue
 }
 
@@ -1403,6 +1418,12 @@ function Get-PatcherSourceCode {
     param([string]$ProcessName = "Discord.exe", [string]$ModuleName = "discord_voice.node")
     $offsets = $Script:Config.Offsets
     $c = $Script:Config
+
+    # Require all 17 offsets before generating C++ (avoids null/zero in embedded code)
+    $missing = @($Script:RequiredOffsetNames | Where-Object { $null -eq $offsets[$_] -or ($offsets[$_] -is [int] -and $offsets[$_] -eq 0) })
+    if ($missing.Count -gt 0) {
+        throw "Missing or zero offset(s) required for patcher: $($missing -join ', '). Paste the full offset block from the offset finder (17 entries)."
+    }
     $sp = $Script:SelectedPatches
     $bitrateKbps = [Math]::Min(384, [int]$c.Bitrate)
     if ([int]$c.Bitrate -ne $bitrateKbps) { Write-Log "Bitrate clamped to ${bitrateKbps}kbps for patcher" -Level Warning }
@@ -1447,10 +1468,6 @@ namespace Offsets {
     constexpr uint32_t ThrowError = $('0x{0:X}' -f $offsets.ThrowError);
     constexpr uint32_t EncoderConfigInit1 = $('0x{0:X}' -f $offsets.EncoderConfigInit1);
     constexpr uint32_t EncoderConfigInit2 = $('0x{0:X}' -f $offsets.EncoderConfigInit2);
-    constexpr uint32_t DuplicateEmulateBitrateModified = $('0x{0:X}' -f $offsets.DuplicateEmulateBitrateModified);
-    constexpr uint32_t BWE_Thr2 = $('0x{0:X}' -f $offsets.BWE_Thr2);
-    constexpr uint32_t BWE_Thr3 = $('0x{0:X}' -f $offsets.BWE_Thr3);
-    constexpr uint32_t CwndPushback = $('0x{0:X}' -f $offsets.CwndPushback);
     constexpr uint32_t FILE_OFFSET_ADJUSTMENT = 0xC00;
 };
 
@@ -1519,10 +1536,7 @@ private:
         const unsigned char orig_48khz[]    = {0x0F, 0x42, 0xC1};
         const unsigned char orig_configok[] = {0x8B, 0x11, 0x31, 0xC0};
         const unsigned char orig_downmix[]  = {0x41, 0x57, 0x41, 0x56};
-        const unsigned char orig_bwe_thr2[] = {0x00, 0xE9, 0x07, 0x00};
-        const unsigned char orig_bwe_thr3[] = {0x00, 0x10, 0x0E, 0x00};
         const unsigned char orig_enc_32k[]  = {0x00, 0x7D, 0x00, 0x00};
-        const unsigned char orig_cwnd[]     = {0x7E, 0x5A};
 
         const unsigned char patched_48khz[]    = {0x90, 0x90, 0x90};
         const unsigned char patched_configok[] = {0x48, 0xC7, 0xC0, 0x01};
@@ -1531,12 +1545,8 @@ private:
         bool o1 = CheckBytes(Offsets::Emulate48Khz, orig_48khz, 3);
         bool o2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, orig_configok, 4);
         bool o3 = CheckBytes(Offsets::DownmixFunc, orig_downmix, 4);
-        bool o_bwe2 = CheckBytes(Offsets::BWE_Thr2 + 3, orig_bwe_thr2, 4);
-        bool o_bwe3 = CheckBytes(Offsets::BWE_Thr3 + 3, orig_bwe_thr3, 4);
         bool o_enc1 = CheckBytes(Offsets::EncoderConfigInit1, orig_enc_32k, 4);
         bool o_enc2 = CheckBytes(Offsets::EncoderConfigInit2, orig_enc_32k, 4);
-        bool o_dup  = CheckBytes(Offsets::DuplicateEmulateBitrateModified, orig_enc_32k, 4);
-        bool o_cwnd = CheckBytes(Offsets::CwndPushback, orig_cwnd, 2);
 
         bool p1 = CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3);
         bool p2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, patched_configok, 4);
@@ -1550,14 +1560,8 @@ private:
             printf("  Emulate48Khz: %s  ConfigIsOk: %s  DownmixFunc: %s\n", o1 ? "OK" : "MISMATCH", o2 ? "OK" : "MISMATCH", o3 ? "OK" : "MISMATCH");
             return false;
         }
-        if (!o_bwe2 || !o_bwe3) {
-            printf("WARNING: BWE validation failed - BWE patches will be skipped. Run find_bwe_offsets.py for your node.\n\n");
-        }
-        if (!o_enc1 || !o_enc2 || !o_dup) {
-            printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2/DupBitrate will be skipped if selected.\n\n");
-        }
-        if (!o_cwnd) {
-            printf("WARNING: CwndPushback validation failed - congestion window patch will be skipped.\n\n");
+        if (!o_enc1 || !o_enc2) {
+            printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2 will be skipped if selected.\n\n");
         }
 
         auto PatchBytes = [&](uint32_t offset, const char* bytes, size_t len) -> bool {
@@ -1714,44 +1718,6 @@ private:
         } else { printf("  [ENCODER] EncoderConfigInit2 - SKIPPED (validation failed)\n"); skipCount++; }
 #else
         printf("  [ENCODER] EncoderConfigInit2 - SKIPPED\n"); skipCount++;
-#endif
-#if PATCH_DuplicateEmulateBitrateModified
-        if (o_dup) {
-            printf("  [ENCODER] DuplicateEmulateBitrateModified (32000 -> 384000)...\n");
-            if (!PatchBytes(Offsets::DuplicateEmulateBitrateModified, "\x00\xDC\x05\x00", 4)) return false;
-            patchCount++;
-        } else { printf("  [ENCODER] DuplicateEmulateBitrateModified - SKIPPED (validation failed)\n"); skipCount++; }
-#else
-        printf("  [ENCODER] DuplicateEmulateBitrateModified - SKIPPED\n"); skipCount++;
-#endif
-
-#if PATCH_BWE_Thr2
-        if (o_bwe2) {
-            printf("  [BWE] BWE_Thr2 (518400 -> 384000)...\n");
-            if (!PatchBytes(Offsets::BWE_Thr2 + 3, "\x00\xDC\x05\x00", 4)) return false;
-            patchCount++;
-        } else { printf("  [BWE] BWE_Thr2 - SKIPPED (validation failed)\n"); skipCount++; }
-#else
-        printf("  [BWE] BWE_Thr2 - SKIPPED\n"); skipCount++;
-#endif
-#if PATCH_BWE_Thr3
-        if (o_bwe3) {
-            printf("  [BWE] BWE_Thr3 (921600 -> 384000)...\n");
-            if (!PatchBytes(Offsets::BWE_Thr3 + 3, "\x00\xDC\x05\x00", 4)) return false;
-            patchCount++;
-        } else { printf("  [BWE] BWE_Thr3 - SKIPPED (validation failed)\n"); skipCount++; }
-#else
-        printf("  [BWE] BWE_Thr3 - SKIPPED\n"); skipCount++;
-#endif
-
-#if PATCH_CwndPushback
-        if (o_cwnd) {
-            printf("  [CWND] CwndPushback (disable congestion window pushback)...\n");
-            if (!PatchBytes(Offsets::CwndPushback, "\x90\x90", 2)) return false;
-            patchCount++;
-        } else { printf("  [CWND] CwndPushback - SKIPPED (validation failed)\n"); skipCount++; }
-#else
-        printf("  [CWND] CwndPushback - SKIPPED\n"); skipCount++;
 #endif
 
 #if PATCH_EmulateBitrateModified && PATCH_SetsBitrateBitrateValue
@@ -1932,42 +1898,16 @@ function New-SourceFiles {
         $ampContent = Get-Content $amp -Raw
         $cfgGain = [int]$Script:Config.AudioGainMultiplier
         if ($cfgGain -ge 3) {
-            if ($ampContent -match '#define GAIN_MULTIPLIER') {
-                Write-Log "ERROR: 3x+ path must not contain GAIN_MULTIPLIER. Wrong amplifier code was generated." -Level Error
-            }
+            if ($ampContent -match '#define GAIN_MULTIPLIER') { Write-Log "Amplifier codegen error: 3x+ path must not contain GAIN_MULTIPLIER" -Level Error }
             if ($ampContent -match '#define Multiplier (-?\d+)') {
-                $actualMult = $Matches[1]
                 $expectedMult = $cfgGain - 2
-                Write-Log "VERIFY: 3x+ ONLY - #define Multiplier = $actualMult (expected: $expectedMult for ${cfgGain}x)" -Level Info
-                if ([int]$actualMult -ne $expectedMult) {
-                    Write-Log "WARNING: Multiplier mismatch! File has $actualMult but expected $expectedMult" -Level Warning
-                }
-                if ($ampContent -match 'channels \+ Multiplier') {
-                    Write-Log "VERIFY: amplifier.cpp uses ONLY (channels + Multiplier) for 3x+" -Level Info
-                } else {
-                    Write-Log "WARNING: Could not confirm 3x+ formula in amplifier.cpp" -Level Warning
-                }
-            } else {
-                Write-Log "WARNING: Could not find #define Multiplier in generated code!" -Level Warning
-            }
+                if ([int]$Matches[1] -ne $expectedMult) { Write-Log "Multiplier mismatch: got $($Matches[1]), expected $expectedMult" -Level Warning }
+            } else { Write-Log "Missing #define Multiplier in generated amplifier code" -Level Warning }
         } else {
-            if ($ampContent -match '#define Multiplier ') {
-                Write-Log "ERROR: 1x/2x path must not contain Multiplier. Wrong amplifier code was generated." -Level Error
-            }
+            if ($ampContent -match '#define Multiplier ') { Write-Log "Amplifier codegen error: 1x/2x path must not contain Multiplier" -Level Error }
             if ($ampContent -match '#define GAIN_MULTIPLIER (\d+)') {
-                $actualGain = $Matches[1]
-                Write-Log "VERIFY: 1x/2x ONLY - #define GAIN_MULTIPLIER = $actualGain (expected: $cfgGain)" -Level Info
-                if ([int]$actualGain -ne $cfgGain) {
-                    Write-Log "WARNING: Gain mismatch! File has $actualGain but expected $cfgGain" -Level Warning
-                }
-                if ($ampContent -match 'float scale = 1\.0f' -and $ampContent -match 'GAIN_MULTIPLIER \* scale') {
-                    Write-Log "VERIFY: amplifier.cpp uses ONLY 1x/2x path (scale + GAIN_MULTIPLIER)" -Level Info
-                } else {
-                    Write-Log "WARNING: Could not confirm 1x/2x path in amplifier.cpp" -Level Warning
-                }
-            } else {
-                Write-Log "WARNING: Could not find #define GAIN_MULTIPLIER in generated code!" -Level Warning
-            }
+                if ([int]$Matches[1] -ne $cfgGain) { Write-Log "Gain mismatch: got $($Matches[1]), expected $cfgGain" -Level Warning }
+            } else { Write-Log "Missing #define GAIN_MULTIPLIER in generated amplifier code" -Level Warning }
         }
         if (-not (Test-Path $patcher)) { throw "patcher.cpp was not created at: $patcher" }
         if (-not (Test-Path $amp)) { throw "amplifier.cpp was not created at: $amp" }
@@ -2092,23 +2032,12 @@ function Invoke-Compilation {
 
 function Get-UniqueClientsByAppPath {
     param([array]$Clients)
-
-    $uniquePaths = @{}
-    $uniqueClients = [System.Collections.ArrayList]::new()
-
-    foreach ($client in $Clients) {
-        if (-not $client.AppPath) {
-            continue
-        }
-        if ($uniquePaths.ContainsKey($client.AppPath)) {
-            continue
-        }
-
-        $uniquePaths[$client.AppPath] = $true
-        [void]$uniqueClients.Add($client)
+    $seen = @{}; $out = [System.Collections.ArrayList]::new()
+    foreach ($c in $Clients) {
+        if (-not $c.AppPath -or $seen.ContainsKey($c.AppPath)) { continue }
+        $seen[$c.AppPath] = $true; [void]$out.Add($c)
     }
-
-    return @($uniqueClients)
+    return @($out)
 }
 
 function Get-PreparedVoiceBackupPath {
@@ -2164,25 +2093,27 @@ function Get-PreparedVoiceBackupPath {
 }
 
 function Invoke-PatchClients {
-    param([array]$Clients, [hashtable]$Compiler, [string]$VoiceBackupPath)
+    param([array]$Clients, [hashtable]$Compiler, [string]$VoiceBackupPath, [switch]$PatchLocalOnly)
 
     if (-not $Clients -or $Clients.Count -eq 0) {
         return @{ Success = 0; Failed = @(); Total = 0 }
     }
 
     $allClientNames = @($Clients | ForEach-Object { $_.Name.Trim() })
-    if (-not $VoiceBackupPath -or -not (Test-Path $VoiceBackupPath)) {
-        Write-Log "Voice backup path not found: $VoiceBackupPath" -Level Error
-        return @{ Success = 0; Failed = $allClientNames; Total = $Clients.Count }
+    if (-not $PatchLocalOnly) {
+        if (-not $VoiceBackupPath -or -not (Test-Path $VoiceBackupPath)) {
+            Write-Log "Voice backup path not found: $VoiceBackupPath" -Level Error
+            return @{ Success = 0; Failed = $allClientNames; Total = $Clients.Count }
+        }
+        $backupFiles = @(Get-ChildItem $VoiceBackupPath -File -ErrorAction SilentlyContinue)
+        if ($backupFiles.Count -eq 0) {
+            Write-Log "No files found in voice backup path" -Level Error
+            return @{ Success = 0; Failed = $allClientNames; Total = $Clients.Count }
+        }
+        Write-Log "Voice backup contains $($backupFiles.Count) files" -Level Info
+    } else {
+        Write-Log "Patch local only: using existing voice module files (no download)." -Level Info
     }
-
-    $backupFiles = @(Get-ChildItem $VoiceBackupPath -File -ErrorAction SilentlyContinue)
-    if ($backupFiles.Count -eq 0) {
-        Write-Log "No files found in voice backup path" -Level Error
-        return @{ Success = 0; Failed = $allClientNames; Total = $Clients.Count }
-    }
-
-    Write-Log "Voice backup contains $($backupFiles.Count) files" -Level Info
     $successCount = 0
     $failedClients = [System.Collections.ArrayList]::new()
 
@@ -2214,17 +2145,18 @@ function Invoke-PatchClients {
                 }
             }
 
-            Write-Log "Removing old voice module files..." -Level Info
-            if (Test-Path $voiceFolderPath) {
-                Remove-Item "$voiceFolderPath\*" -Recurse -Force -ErrorAction SilentlyContinue
-            } else {
-                EnsureDir $voiceFolderPath
+            if (-not $PatchLocalOnly) {
+                Write-Log "Removing old voice module files..." -Level Info
+                if (Test-Path $voiceFolderPath) {
+                    Remove-Item "$voiceFolderPath\*" -Recurse -Force -ErrorAction SilentlyContinue
+                } else {
+                    EnsureDir $voiceFolderPath
+                }
+                Write-Log "Installing compatible voice module..." -Level Info
+                Copy-Item "$VoiceBackupPath\*" $voiceFolderPath -Recurse -Force
             }
-
-            Write-Log "Installing compatible voice module..." -Level Info
-            Copy-Item "$VoiceBackupPath\*" $voiceFolderPath -Recurse -Force
             if (-not (Test-Path $voiceNodePath)) {
-                throw "discord_voice.node not found after copying backup files"
+                throw "discord_voice.node not found. Install voice module first or run without 'Patch local'."
             }
 
             Write-Log "Voice node: $voiceNodePath" -Level Info
@@ -2432,10 +2364,14 @@ function Start-Patching {
         return $false
     }
 
-    $voiceBackupPath = Get-PreparedVoiceBackupPath
-    if (-not $voiceBackupPath) {
-        Wait-EnterOrTimeout
-        return $false
+    $patchLocalOnly = $guiResult.PatchLocalOnly -eq $true
+    $voiceBackupPath = $null
+    if (-not $patchLocalOnly) {
+        $voiceBackupPath = Get-PreparedVoiceBackupPath
+        if (-not $voiceBackupPath) {
+            Wait-EnterOrTimeout
+            return $false
+        }
     }
 
     Write-Log "Closing Discord processes..." -Level Info
@@ -2460,7 +2396,11 @@ function Start-Patching {
     }
 
     Start-Sleep -Seconds 1
-    $result = Invoke-PatchClients -Clients @($targetClient) -Compiler $compiler -VoiceBackupPath $voiceBackupPath
+    if ($patchLocalOnly) {
+        $result = Invoke-PatchClients -Clients @($targetClient) -Compiler $compiler -VoiceBackupPath $null -PatchLocalOnly
+    } else {
+        $result = Invoke-PatchClients -Clients @($targetClient) -Compiler $compiler -VoiceBackupPath $voiceBackupPath
+    }
     Write-Host ""
     if ($result.Success -gt 0) {
         Write-Log "=== PATCHING COMPLETE ===" -Level Success
