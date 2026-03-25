@@ -23,29 +23,29 @@ $Script:SCRIPT_VERSION = "6"
 
 $Script:OffsetsMeta = @{
     FinderVersion = "discord_voice_node_offset_finder.py v5.1"
-    Build         = "Mar 9 2026"
-    Size          = 14366136
-    MD5           = "c95725a190fa8e27653235ea816fc1df"
+    Build         = "Mar 23 2026"
+    Size          = 14395320
+    MD5           = "1550d7ceeef04e81435ad87e7409f0f3"
 }
 
 $Script:Offsets = @{
-    CreateAudioFrameStereo            = 0x117A41
-    AudioEncoderOpusConfigSetChannels = 0x3A8F54
-    MonoDownmixer                     = 0xD68C9
-    EmulateStereoSuccess1             = 0x53E8EB
-    EmulateStereoSuccess2             = 0x53E8F7
-    EmulateBitrateModified            = 0x53ED4A
-    SetsBitrateBitrateValue           = 0x540B71
-    SetsBitrateBitwiseOr              = 0x540B79
-    Emulate48Khz                      = 0x53EA53
-    HighPassFilter                    = 0x54AB60
-    HighpassCutoffFilter              = 0x8C7BA0
-    DcReject                          = 0x8C7D80
-    DownmixFunc                       = 0x8C3F10
-    AudioEncoderOpusConfigIsOk        = 0x3A91F0
-    ThrowError                        = 0x2C0130
-    EncoderConfigInit1                = 0x3A8F5E
-    EncoderConfigInit2                = 0x3A8867
+    CreateAudioFrameStereo            = 0x11A351
+    AudioEncoderOpusConfigSetChannels = 0x3AD144
+    MonoDownmixer                     = 0xD9569
+    EmulateStereoSuccess1             = 0x5441FB
+    EmulateStereoSuccess2             = 0x544207
+    EmulateBitrateModified            = 0x54465A
+    SetsBitrateBitrateValue           = 0x546481
+    SetsBitrateBitwiseOr              = 0x546489
+    Emulate48Khz                      = 0x544363
+    HighPassFilter                    = 0x550470
+    HighpassCutoffFilter              = 0x8CCFB0
+    DcReject                          = 0x8CD190
+    DownmixFunc                       = 0x8C9320
+    AudioEncoderOpusConfigIsOk        = 0x3AD3E0
+    ThrowError                        = 0x2C2FE0
+    EncoderConfigInit1                = 0x3AD14E
+    EncoderConfigInit2                = 0x3ACA57
 }
 
 # endregion Offsets
