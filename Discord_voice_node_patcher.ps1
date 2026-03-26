@@ -158,7 +158,8 @@ $Script:Config = @{
     TempDir = "$env:TEMP\DiscordVoicePatcher"; BackupDir = "$env:TEMP\DiscordVoicePatcher\Backups"
     LogFile = "$env:TEMP\DiscordVoicePatcher\patcher.log"; ConfigFile = "$env:TEMP\DiscordVoicePatcher\config.json"
     MaxBackupCount = 10
-    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Linux%20Patcher%20and%20Installer/discord_voice"
+    # Browser: https://github.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/tree/main/Updates/Nodes/Unpatched%20Nodes%20(For%20Patcher)/Windows
+    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Updates%2FNodes%2FUnpatched%20Nodes%20%28For%20Patcher%29%2FWindows"
     OffsetsMeta = $Script:OffsetsMeta
     Offsets     = $Script:Offsets
 }
@@ -356,7 +357,7 @@ function Check-ForUpdate {
         }
         $remoteVersion = "Unknown"
         if ($remoteContent -match '\$Script:SCRIPT_VERSION\s*=\s*"([^"]+)"') { $remoteVersion = $matches[1] }
-        Write-Log "GitHub copy differs from local file — syncing (v$Script:SCRIPT_VERSION -> v$remoteVersion)." -Level Warning
+        Write-Log "GitHub copy differs from local file - syncing (v$Script:SCRIPT_VERSION -> v$remoteVersion)." -Level Warning
         return @{ UpdateAvailable = $true; TempFile = $tempFile; RemoteVersion = $remoteVersion; LocalVersion = $Script:SCRIPT_VERSION }
     } catch {
         Write-Log "Update check failed: $($_.Exception.Message)" -Level Warning
@@ -369,19 +370,36 @@ function Apply-ScriptUpdate {
     param([string]$UpdatedScriptPath, [string]$CurrentScriptPath, [switch]$RestartAfter)
     if (-not (Test-Path $UpdatedScriptPath)) { Write-Log "Update file not found: $UpdatedScriptPath" -Level Error; return $false }
     $batchFile = Join-Path $env:TEMP "DiscordVoicePatcher_Update.bat"
-    $batchContent = "@echo off`necho Applying update...`ntimeout /t 2 /nobreak >nul`ncopy /Y `"$UpdatedScriptPath`" `"$CurrentScriptPath`" >nul`nif errorlevel 1 (`n    echo Failed to copy update file!`n    pause`n    exit /b 1`n)`necho Update applied successfully!`ntimeout /t 1 /nobreak >nul"
+    # Build .bat with single-quoted lines only: "..." would parse >nul, 2>&1, & as PowerShell redirection/operators.
+    $bl = [System.Collections.Generic.List[string]]::new()
+    [void]$bl.Add('@echo off')
+    [void]$bl.Add('echo Applying update...')
+    [void]$bl.Add('timeout /t 2 /nobreak >nul')
+    [void]$bl.Add(('copy /Y "{0}" "{1}" >nul' -f $UpdatedScriptPath, $CurrentScriptPath))
+    [void]$bl.Add('if errorlevel 1 (')
+    [void]$bl.Add('    echo Failed to copy update file!')
+    [void]$bl.Add('    pause')
+    [void]$bl.Add('    exit /b 1')
+    [void]$bl.Add(')')
+    [void]$bl.Add('echo Update applied successfully!')
+    [void]$bl.Add('timeout /t 1 /nobreak >nul')
     if ($RestartAfter) {
         $restartPs1 = Join-Path $env:TEMP "DiscordVoicePatcher_Restart_$([Guid]::NewGuid().ToString('N')).ps1"
         $restartBody = Get-PatcherRestartHelperScriptContent -TargetScriptPath $CurrentScriptPath
         try {
             Set-Content -LiteralPath $restartPs1 -Value $restartBody -Encoding UTF8 -Force
-            $batchContent += "`necho Restarting script...`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$restartPs1`"`ndel `"$restartPs1`" >nul 2>&1"
+            [void]$bl.Add('echo Restarting script...')
+            [void]$bl.Add(('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $restartPs1))
+            [void]$bl.Add(('del "{0}" >nul 2>&1' -f $restartPs1))
         } catch {
             Write-Log "Could not write restart helper; launching script without extra args." -Level Warning
-            $batchContent += "`necho Restarting script...`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$CurrentScriptPath`""
+            [void]$bl.Add('echo Restarting script...')
+            [void]$bl.Add(('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $CurrentScriptPath))
         }
     }
-    $batchContent += "`ndel `"$UpdatedScriptPath`" >nul 2>&1`n(goto) 2>nul & del `"%~f0`""
+    [void]$bl.Add(('del "{0}" >nul 2>&1' -f $UpdatedScriptPath))
+    [void]$bl.Add('(goto) 2>nul & del "%~f0"')
+    $batchContent = $bl -join "`r`n"
     $batchContent | Out-File $batchFile -Encoding ASCII -Force
     Write-Log "Update will be applied after script closes..." -Level Info
     Start-Process "cmd.exe" -ArgumentList "/c", "`"$batchFile`"" -WindowStyle Hidden
@@ -423,7 +441,7 @@ function Download-VoiceBackupFiles {
                     if ($fileInfo.Length -eq 0) { throw "Downloaded file is empty" }
                     $ext = [System.IO.Path]::GetExtension($file.name).ToLower()
                     if (($ext -eq ".node" -or $ext -eq ".dll") -and $fileInfo.Length -lt 1024) {
-                        Write-Log "  [!] Warning: $($file.name) seems too small ($($fileInfo.Length) bytes)" -Level Warning
+                        Write-Log "  [!] Warning: $($file.name) seems too small $($fileInfo.Length) bytes" -Level Warning
                     }
                     $fileCount++
                 } catch {
@@ -2020,12 +2038,25 @@ function Invoke-Compilation {
         switch ($Compiler.Type) {
             'MSVC' {
                 $src1 = $SourceFiles[0]; $src2 = $SourceFiles[1]; $vcvars = $Compiler.Path
-                $batContent = "@echo off`ncall `"$vcvars`"`nif errorlevel 1 (`n    echo ERROR: Failed to initialize Visual Studio environment`n    exit /b 1`n)`ncl.exe /EHsc /O2 /std:c++17 ^`n    `"$src1`" ^`n    `"$src2`" ^`n    /Fe`"$exe`" ^`n    /link Psapi.lib"
+                $batLines = @(
+                    '@echo off'
+                    ('call "{0}"' -f $vcvars)
+                    'if errorlevel 1 ('
+                    '    echo ERROR: Failed to initialize Visual Studio environment'
+                    '    exit /b 1'
+                    ')'
+                    'cl.exe /EHsc /O2 /std:c++17 ^'
+                    ('    "{0}" ^' -f $src1)
+                    ('    "{0}" ^' -f $src2)
+                    ('    /Fe"{0}" ^' -f $exe)
+                    '    /link Psapi.lib'
+                )
+                $batContent = $batLines -join "`r`n"
                 $batPath = "$($Script:Config.TempDir)\build.bat"
                 Set-Content -Path $batPath -Value $batContent -Encoding ASCII -NoNewline
                 $pinfo = New-Object System.Diagnostics.ProcessStartInfo
                 $pinfo.FileName = "cmd.exe"
-                $pinfo.Arguments = "/c `"`"$batPath`" > `"$log`" 2>&1`""
+                $pinfo.Arguments = ('/c ""{0}"" > ""{1}"" 2>&1' -f $batPath, $log)
                 $pinfo.UseShellExecute = $false
                 $pinfo.CreateNoWindow = $true
                 $pinfo.WorkingDirectory = $Script:Config.TempDir
