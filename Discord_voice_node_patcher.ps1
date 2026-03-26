@@ -14,7 +14,8 @@ $ProgressPreference = 'SilentlyContinue'
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue
 
-$Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-Node-Patcher/main/Discord_voice_node_patcher.ps1"
+# Canonical source (same tree as Stereo Hub / Linux bundle)
+$Script:UPDATE_URL_BASE = "https://raw.githubusercontent.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/main/Updates/Windows/Discord_voice_node_patcher.ps1"
 $Script:SCRIPT_VERSION = "6"
 
 # region Offsets (PASTE HERE)
@@ -157,7 +158,7 @@ $Script:Config = @{
     TempDir = "$env:TEMP\DiscordVoicePatcher"; BackupDir = "$env:TEMP\DiscordVoicePatcher\Backups"
     LogFile = "$env:TEMP\DiscordVoicePatcher\patcher.log"; ConfigFile = "$env:TEMP\DiscordVoicePatcher\config.json"
     MaxBackupCount = 10
-    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Node-Patcher/contents/discord_voice"
+    VoiceBackupAPI = "https://api.github.com/repos/ProdHallow/Discord-Stereo-Windows-MacOS-Linux/contents/Linux%20Patcher%20and%20Installer/discord_voice"
     OffsetsMeta = $Script:OffsetsMeta
     Offsets     = $Script:Offsets
 }
@@ -291,17 +292,54 @@ function Get-OffsetsCopyBlock {
 
 # region Auto-Update
 
+function Get-PatcherRestartHelperScriptContent {
+    param([Parameter(Mandatory)][string]$TargetScriptPath)
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add('-NoProfile')
+    $parts.Add('-ExecutionPolicy')
+    $parts.Add('Bypass')
+    $parts.Add('-File')
+    $parts.Add($TargetScriptPath)
+    # Read script-scope param() values (nested function does not see script $PSBoundParameters)
+    $parts.Add('-AudioGainMultiplier')
+    $parts.Add([string]$script:AudioGainMultiplier)
+    if ($script:SkipBackup) { $parts.Add('-SkipBackup') }
+    if ($script:Restore) { $parts.Add('-Restore') }
+    if ($script:ListBackups) { $parts.Add('-ListBackups') }
+    if ($script:FixAll) { $parts.Add('-FixAll') }
+    if (-not [string]::IsNullOrWhiteSpace([string]$script:FixClient)) {
+        $parts.Add('-FixClient')
+        $parts.Add([string]$script:FixClient)
+    }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('$ErrorActionPreference = "Stop"')
+    [void]$sb.Append('$p = @(')
+    for ($i = 0; $i -lt $parts.Count; $i++) {
+        if ($i -gt 0) { [void]$sb.Append(',') }
+        $esc = $parts[$i] -replace "'", "''"
+        [void]$sb.Append("'$esc'")
+    }
+    [void]$sb.AppendLine(')')
+    [void]$sb.AppendLine('Start-Process -FilePath "powershell.exe" -ArgumentList $p -WindowStyle Normal')
+    return $sb.ToString()
+}
+
 function Check-ForUpdate {
     try {
-        Write-Log "Checking for script updates..." -Level Info
+        Write-Log "Checking for script updates from GitHub (no-cache)..." -Level Info
         if ([string]::IsNullOrEmpty($PSCommandPath)) {
-            Write-Log "Running latest version from web" -Level Success
+            Write-Log "Running from memory / web; skip self-update check" -Level Success
             return @{ UpdateAvailable = $false; Reason = "WebExecution" }
         }
         $tempFile = Join-Path $env:TEMP "DiscordVoicePatcher_Update_$(Get-Random).ps1"
         try {
-            $updateUri = "$($Script:UPDATE_URL_BASE)?nocache=$(Get-Random)"
-            Invoke-WebRequest -Uri $updateUri -OutFile $tempFile -UseBasicParsing -TimeoutSec 15 | Out-Null
+            $ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            $updateUri = "$($Script:UPDATE_URL_BASE)$([char]0x3F)t=$ts&r=$(Get-Random)"
+            $headers = @{
+                'Cache-Control' = 'no-cache'
+                'Pragma'        = 'no-cache'
+            }
+            Invoke-WebRequest -Uri $updateUri -OutFile $tempFile -UseBasicParsing -TimeoutSec 30 -Headers $headers | Out-Null
         } catch {
             Write-Log "Could not check for updates: $($_.Exception.Message)" -Level Warning
             return @{ UpdateAvailable = $false; Reason = "NetworkError"; Error = $_.Exception.Message }
@@ -311,29 +349,15 @@ function Check-ForUpdate {
         $localContent = (Get-Content $PSCommandPath -Raw) -replace "`r`n", "`n" -replace "`r", "`n"
         $remoteContent = $remoteContent.Trim()
         $localContent = $localContent.Trim()
-        if ($remoteContent -ne $localContent) {
-            $remoteVersion = "Unknown"
-            if ($remoteContent -match 'SCRIPT_VERSION\s*=\s*"([^"]+)"') { $remoteVersion = $matches[1] }
-            try {
-                $localVer = [version]($Script:SCRIPT_VERSION -replace '[^0-9.]','')
-                $remoteVer = [version]($remoteVersion -replace '[^0-9.]','')
-                if ($remoteVer -le $localVer) {
-                    Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-                    Write-Log "Remote version v$remoteVersion is not newer than local v$Script:SCRIPT_VERSION - skipping" -Level Success
-                    return @{ UpdateAvailable = $false; Reason = "LocalIsNewer" }
-                }
-            } catch {
-                Write-Log "Could not compare versions (local=$Script:SCRIPT_VERSION, remote=$remoteVersion) - skipping update" -Level Warning
-                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-                return @{ UpdateAvailable = $false; Reason = "VersionParseError" }
-            }
-            Write-Log "Update available! (v$Script:SCRIPT_VERSION -> v$remoteVersion)" -Level Warning
-            return @{ UpdateAvailable = $true; TempFile = $tempFile; RemoteVersion = $remoteVersion; LocalVersion = $Script:SCRIPT_VERSION }
-        } else {
+        if ($remoteContent -eq $localContent) {
             Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-            Write-Log "You are on the latest version (v$Script:SCRIPT_VERSION)" -Level Success
+            Write-Log "Script matches GitHub (byte-for-byte)." -Level Success
             return @{ UpdateAvailable = $false; Reason = "UpToDate" }
         }
+        $remoteVersion = "Unknown"
+        if ($remoteContent -match '\$Script:SCRIPT_VERSION\s*=\s*"([^"]+)"') { $remoteVersion = $matches[1] }
+        Write-Log "GitHub copy differs from local file — syncing (v$Script:SCRIPT_VERSION -> v$remoteVersion)." -Level Warning
+        return @{ UpdateAvailable = $true; TempFile = $tempFile; RemoteVersion = $remoteVersion; LocalVersion = $Script:SCRIPT_VERSION }
     } catch {
         Write-Log "Update check failed: $($_.Exception.Message)" -Level Warning
         if ($tempFile -and (Test-Path $tempFile)) { Remove-Item $tempFile -Force -ErrorAction SilentlyContinue }
@@ -346,7 +370,17 @@ function Apply-ScriptUpdate {
     if (-not (Test-Path $UpdatedScriptPath)) { Write-Log "Update file not found: $UpdatedScriptPath" -Level Error; return $false }
     $batchFile = Join-Path $env:TEMP "DiscordVoicePatcher_Update.bat"
     $batchContent = "@echo off`necho Applying update...`ntimeout /t 2 /nobreak >nul`ncopy /Y `"$UpdatedScriptPath`" `"$CurrentScriptPath`" >nul`nif errorlevel 1 (`n    echo Failed to copy update file!`n    pause`n    exit /b 1`n)`necho Update applied successfully!`ntimeout /t 1 /nobreak >nul"
-    if ($RestartAfter) { $batchContent += "`necho Restarting script...`npowershell.exe -ExecutionPolicy Bypass -File `"$CurrentScriptPath`"" }
+    if ($RestartAfter) {
+        $restartPs1 = Join-Path $env:TEMP "DiscordVoicePatcher_Restart_$([Guid]::NewGuid().ToString('N')).ps1"
+        $restartBody = Get-PatcherRestartHelperScriptContent -TargetScriptPath $CurrentScriptPath
+        try {
+            Set-Content -LiteralPath $restartPs1 -Value $restartBody -Encoding UTF8 -Force
+            $batchContent += "`necho Restarting script...`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$restartPs1`"`ndel `"$restartPs1`" >nul 2>&1"
+        } catch {
+            Write-Log "Could not write restart helper; launching script without extra args." -Level Warning
+            $batchContent += "`necho Restarting script...`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$CurrentScriptPath`""
+        }
+    }
     $batchContent += "`ndel `"$UpdatedScriptPath`" >nul 2>&1`n(goto) 2>nul & del `"%~f0`""
     $batchContent | Out-File $batchFile -Encoding ASCII -Force
     Write-Log "Update will be applied after script closes..." -Level Info
@@ -1541,27 +1575,31 @@ private:
         const unsigned char patched_48khz[]    = {0x90, 0x90, 0x90};
         const unsigned char patched_configok[] = {0x48, 0xC7, 0xC0, 0x01};
         const unsigned char patched_downmix[]  = {0xC3};
+        const unsigned char patched_enc384[]   = {0x00, 0xDC, 0x05, 0x00};
 
-        bool o1 = CheckBytes(Offsets::Emulate48Khz, orig_48khz, 3);
-        bool o2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, orig_configok, 4);
-        bool o3 = CheckBytes(Offsets::DownmixFunc, orig_downmix, 4);
-        bool o_enc1 = CheckBytes(Offsets::EncoderConfigInit1, orig_enc_32k, 4);
-        bool o_enc2 = CheckBytes(Offsets::EncoderConfigInit2, orig_enc_32k, 4);
+        bool o1 = CheckBytes(Offsets::Emulate48Khz, orig_48khz, 3)
+               || CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3);
+        bool o2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, orig_configok, 4)
+               || CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, patched_configok, 4);
+        bool o3 = CheckBytes(Offsets::DownmixFunc, orig_downmix, 4)
+               || CheckBytes(Offsets::DownmixFunc, patched_downmix, 1);
+        bool o_enc1 = CheckBytes(Offsets::EncoderConfigInit1, orig_enc_32k, 4)
+               || CheckBytes(Offsets::EncoderConfigInit1, patched_enc384, 4);
+        bool o_enc2 = CheckBytes(Offsets::EncoderConfigInit2, orig_enc_32k, 4)
+               || CheckBytes(Offsets::EncoderConfigInit2, patched_enc384, 4);
 
-        bool p1 = CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3);
-        bool p2 = CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, patched_configok, 4);
-        bool p3 = CheckBytes(Offsets::DownmixFunc, patched_downmix, 1);
-
-        if (p1 && p2 && p3) {
-            printf("WARNING: This file appears to already be patched!\n");
-            printf("Re-patching anyway to ensure all patches are applied...\n\n");
-        } else if (!o1 || !o2 || !o3) {
+        if (!o1 || !o2 || !o3) {
             printf("ERROR: Binary validation failed - wrong build.\n");
             printf("  Emulate48Khz: %s  ConfigIsOk: %s  DownmixFunc: %s\n", o1 ? "OK" : "MISMATCH", o2 ? "OK" : "MISMATCH", o3 ? "OK" : "MISMATCH");
             return false;
         }
+        if (CheckBytes(Offsets::Emulate48Khz, patched_48khz, 3)
+            && CheckBytes(Offsets::AudioEncoderOpusConfigIsOk, patched_configok, 4)
+            && CheckBytes(Offsets::DownmixFunc, patched_downmix, 1)) {
+            printf("NOTE: Key sites look already patched; re-applying all enabled patches.\n\n");
+        }
         if (!o_enc1 || !o_enc2) {
-            printf("WARNING: Encoder config validation failed - EncoderConfigInit1/2 will be skipped if selected.\n\n");
+            printf("WARNING: Encoder config sites do not match stock or 384k patched pattern; EncoderConfigInit1/2 will be skipped if selected.\n\n");
         }
 
         auto PatchBytes = [&](uint32_t offset, const char* bytes, size_t len) -> bool {
@@ -2204,21 +2242,14 @@ function Start-Patching {
         $updateResult = Check-ForUpdate
         if ($updateResult.UpdateAvailable) {
             Write-Host ""
-            Write-Host "A new version is available: v$($updateResult.RemoteVersion)" -ForegroundColor Yellow
-            Write-Host "Current version: v$($updateResult.LocalVersion)" -ForegroundColor Cyan
+            Write-Host "Syncing script from GitHub (v$($updateResult.LocalVersion) -> v$($updateResult.RemoteVersion))..." -ForegroundColor Yellow
             Write-Host ""
-            $response = Read-Host "Would you like to update now? (Y/n)"
-            if ($response -eq '' -or $response -match '^[Yy]') {
-                Write-Log "Applying update..." -Level Info
-                if (Apply-ScriptUpdate -UpdatedScriptPath $updateResult.TempFile -CurrentScriptPath $PSCommandPath -RestartAfter) {
-                    Write-Log "Update prepared! Script will restart..." -Level Success
-                    Start-Sleep -Seconds 2; exit 0
-                } else {
-                    Write-Log "Failed to apply update. Continuing with current version..." -Level Warning
-                    if (Test-Path $updateResult.TempFile) { Remove-Item $updateResult.TempFile -Force -ErrorAction SilentlyContinue }
-                }
+            Write-Log "Applying update from GitHub..." -Level Info
+            if (Apply-ScriptUpdate -UpdatedScriptPath $updateResult.TempFile -CurrentScriptPath $PSCommandPath -RestartAfter) {
+                Write-Log "Update applied; restarting with the same launch options..." -Level Success
+                Start-Sleep -Seconds 2; exit 0
             } else {
-                Write-Log "Update skipped. Continuing with current version..." -Level Info
+                Write-Log "Failed to apply update. Continuing with current version..." -Level Warning
                 if (Test-Path $updateResult.TempFile) { Remove-Item $updateResult.TempFile -Force -ErrorAction SilentlyContinue }
             }
             Write-Host ""
