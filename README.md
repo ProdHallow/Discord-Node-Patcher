@@ -10,9 +10,6 @@
 # ⚠️ ATTENTION!!! I WILL BE MERGING EVERY DISCORD AUDIO RELATED REPO TO [Discord Audio Collective](https://github.com/ProdHallow/Discord-Stereo-Windows-MacOS-Linux)
 
 ---
-
-If you must use a VPN, split-tunnel Discord so it bypasses it.
----
 > ⚠️ **Debug mode:** Use the **Debug** button in the GUI to show an optional panel where you can enable/disable individual patches (by name) and copy the offset block for use with the offset finder.
 
 ## ⬇️ Download & Run
